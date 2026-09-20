@@ -1,0 +1,14 @@
+{
+    "name": "aws-autoscaler",
+    "version-string": "0.1.0",
+    "dependencies": [
+        {
+            "name": "aws-sdk-cpp",
+            "features": [
+                "autoscaling",
+                "monitoring",
+                "ec2"
+            ]
+        }
+    ]
+}
