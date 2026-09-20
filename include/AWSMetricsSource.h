@@ -1,6 +1,5 @@
 #pragma once
 
-//#include <aws/core/Aws.h>
 #include <aws/autoscaling/AutoScalingClient.h>
 #include <aws/monitoring/CloudWatchClient.h>
 

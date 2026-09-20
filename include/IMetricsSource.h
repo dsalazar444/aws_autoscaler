@@ -46,6 +46,7 @@ public:
     // id:string
     using MetricSeriesByInstance = std::unordered_map<std::string, MetricSeries>;
 
+    // hereda a sus hijos destructor.
     virtual ~IMetricsSource() = default;
 
     // Ids de las instancias actualmente InService en el ASG.

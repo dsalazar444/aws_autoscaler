@@ -15,7 +15,7 @@ using namespace std;
 namespace {
     // en namspc y no en .h porque -> ocultar detalles de implementación que otros componentes no necesitan conocer.
     constexpr int MAX_RETRIES = 2;  // reintentos ADICIONALES tras el primer intento (3 llamadas en total)
-    constexpr std::chrono::milliseconds RETRY_BACKOFF{200}; // tiempo que esperamos entre reintentos
+    constexpr chrono::milliseconds RETRY_BACKOFF{200}; // tiempo que esperamos entre reintentos
 
     // Reintenta `attempt` hasta MAX_RETRIES veces si no llega Ok. Encapsula la
     // politica de reintentos en un solo lugar -- Controller nunca ve intentos
@@ -40,7 +40,7 @@ namespace {
                 return result;
             }
             if (tries < MAX_RETRIES) {
-                std::this_thread::sleep_for(RETRY_BACKOFF * (tries + 1)); // porque si error en temp en aws, esperamos un poco 
+                this_thread::sleep_for(RETRY_BACKOFF * (tries + 1)); // porque si error en temp en aws, esperamos un poco 
                 //antes de reintentar
             }
         }
@@ -51,8 +51,8 @@ namespace {
     // El Id de cada MetricDataQuery debe empezar con minuscula y ser alfanumerico --
     // no podemos usar el instance id tal cual (tiene guiones), asi que mapeamos por indice.
     //size_t porque será positivo
-    std::string QueryIdForIndex(size_t index) {
-        return "id" + std::to_string(index);
+    string QueryIdForIndex(size_t index) {
+        return "id" + to_string(index);
     }
 } 
 
@@ -65,7 +65,7 @@ AWSMetricsSource::AWSMetricsSource(string asgName, string targetGroupArn):
 FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
      // lambda => [capturas](parámetros) -> tipo_de_retorno { ..cuerpo.. }
     // [this] -> "quiero que este lambda pueda acceder al this del objeto actual". POr eso podemos usar param de clase.
-    return RetryOnFailure([this]() -> FetchResult<std::vector<std::string>> { 
+    return RetryOnFailure([this]() -> FetchResult<vector<string>> { 
 
         // creamos objeto para realizar petición a AWS para describe..., y luego le añadimos nombre 
         // a request, de asg
@@ -78,9 +78,9 @@ FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
         auto outcome = _autoScalingClient.DescribeAutoScalingGroups(request);      
         if (!outcome.IsSuccess()) {
             // TODO: registrar outcome.GetError() en el log de auditoria del ciclo
-            // std::cerr << "Error with AutoScaling::DescribeAutoScalingGroups. "
+            // cerr << "Error with AutoScaling::DescribeAutoScalingGroups. "
             //     << outcome.GetError().GetMessage()
-            //     << std::endl;
+            //     << endl;
             return {FetchStatus::ApiError, {}}; 
         }
 
@@ -121,7 +121,7 @@ FetchResult<IMetricsSource::MetricSeriesByInstance> AWSMetricsSource::GetCpuHist
         
         Aws::CloudWatch::Model::GetMetricDataRequest request; // obtenemos objeto tipo request
     
-        auto now = std::chrono::system_clock::now(); 
+        auto now = chrono::system_clock::now(); 
         request.SetStartTime(Aws::Utils::DateTime(now - window)); // window porque será history
         request.SetEndTime(Aws::Utils::DateTime(now));
         
@@ -227,7 +227,7 @@ FetchResult<unordered_map<string, double>> AWSMetricsSource::GetCurrentCpus(
     }
 
     //obtenemos timestamp media 
-    std::chrono::system_clock::time_point targetTimestamp{};
+    chrono::system_clock::time_point targetTimestamp{};
     int bestVotes = 0;
     for (const auto& [timestamp, count] : votes) {
         // actualizamos target y bestvotes si count tiene mas cant que bestvotes, o tienen misma pero con un timestamp mayor
@@ -238,7 +238,7 @@ FetchResult<unordered_map<string, double>> AWSMetricsSource::GetCurrentCpus(
     }
 
     //current es mapa instanceId -> cpu
-    std::unordered_map<std::string, double> current;
+    unordered_map<string, double> current;
     for (const auto& [id, series] : history.value) {
         // [idA, [10:11, 10:12...]]
 
@@ -286,7 +286,7 @@ FetchResult<IMetricsSource::MetricSeries> AWSMetricsSource::GetRequestHistory(ch
     // Creamos request con query, y con los tiempos start y end
     Aws::CloudWatch::Model::GetMetricDataRequest request;
 
-    auto now = std::chrono::system_clock::now();
+    auto now = chrono::system_clock::now();
     request.SetStartTime(Aws::Utils::DateTime(now - window));
     request.SetEndTime(Aws::Utils::DateTime(now));
     request.AddMetricDataQueries(query);
@@ -322,7 +322,7 @@ FetchResult<double> AWSMetricsSource::GetCurrentRequest() {
     auto history = GetRequestHistory(CURRENT_WINDOW);
     // ya se hicieron los retry en history, y retorna objeto fetchresult<...> -> tenemos un status
     // y un value
-    
+
     if (!history.IsOk()) {
         return {FetchStatus::ApiError, 0.0};
     }
