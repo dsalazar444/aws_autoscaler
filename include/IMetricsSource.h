@@ -5,6 +5,25 @@
 #include <vector>
 #include <chrono>
 
+// Indica si la LLAMADA a AWS tuvo exito o no. Esto es independiente de si el
+// valor devuelto esta "completo": una llamada puede ser Ok y aun asi traer
+// datos parciales (ej. una instancia sin punto reciente) -- esa incompletitud
+// la evalua el Validator, no este tipo.
+
+// enum nos permite definir un tipo segun un conjunto de constantes. enum class es una version
+// más segura de enum , pues obliga a especificar de donde viene el tipo -> FetchStatus::Ok
+enum class FetchStatus { Ok, ApiError };
+ 
+// templates allow us to write generic code (funct, structs, etc.) that works with
+// different data types without rewriting the same logic for each type.
+template <typename T>
+struct FetchResult {
+    FetchStatus status = FetchStatus::Ok; // valor por default es OK
+    T value{}; // value{} es para que se inicialice con valor por defecto de ese tipo T que le pasen
+ 
+    bool IsOk() const { return status == FetchStatus::Ok; }
+    // con conts indicamos que esta función solamente consulta el objeto -> no puede modificarlo
+};
 
 class IMetricsSource{
 public:
@@ -30,11 +49,11 @@ public:
     virtual ~IMetricsSource() = default;
 
     // Ids de las instancias actualmente InService en el ASG.
-    virtual std::vector<std::string> GetInstanceIds() = 0;
+    virtual FetchResult<std::vector<std::string>> GetInstanceIds() = 0;
 
     // retorna mapa (id_instancia, cpu usage) de cpus en tiempo actual -> por eso no usamos
     // metricsample, porque timestamp es el actual
-    virtual std::unordered_map<std::string, double> GetCurrentCpus(
+    virtual FetchResult<std::unordered_map<std::string, double>> GetCurrentCpus(
         const std::vector<std::string>& ids) = 0;
 
     // importa timestamp,value e id -> <id, metricSample>
@@ -43,7 +62,7 @@ public:
     // Ultima lectura de CPU por instancia (id -> % CPU). Instancias sin dato
     // reciente quedan fuera del mapa -- el Controller lo trata como metrica faltante,
     // no como 0%.
-    virtual MetricSeriesByInstance GetCpuHistory(
+    virtual FetchResult<MetricSeriesByInstance> GetCpuHistory(
         const std::vector<std::string>& ids,
         std::chrono::seconds window) = 0;
 
@@ -51,8 +70,8 @@ public:
     // promedio), no por instancia individual -- por eso estos dos no reciben `ids`.
 
     // request retorna un promedio por TG en tiempo actual -> int
-    virtual int GetCurrentRequest() = 0;
+    virtual FetchResult<double> GetCurrentRequest() = 0;
 
     // sería metricseries porque es un vector de (timestamp, value_prom)
-    virtual MetricSeries GetRequestHistory(std::chrono::seconds window) = 0;
+    virtual FetchResult<MetricSeries> GetRequestHistory(std::chrono::seconds window) = 0;
 };
