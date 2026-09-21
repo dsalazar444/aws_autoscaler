@@ -3,6 +3,9 @@
 #include <algorithm>
 using namespace std;
 
+// ACLARACIÓN -> Genera los datos de forma que quedan descendentes, como en AWSMetricsSource
+// es decir, el dato más viejo, es el primero
+
 // lo que hay despues de : es la lista de incialización
 // _base..(base) -> copia contenido a _base..
 FakeMetricsSource::FakeMetricsSource(vector<string> instanceIds, double baselineCpuPercent,
@@ -63,7 +66,7 @@ FetchResult<unordered_map<string, double>> FakeMetricsSource::GetCurrentCpus(
     return {FetchStatus::Ok, result};
 }
 
-FetchResult<IMetricsSource::MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(
+FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(
     const vector<string>& ids, chrono::seconds window) {
 
     if (ConsumeFailureFlag()) {
@@ -108,7 +111,7 @@ FetchResult<double> FakeMetricsSource::GetCurrentRequest() {
     return {FetchStatus::Ok, max(0.0, _baselineRequests + noise(_rng))};
 }
 
-FetchResult<IMetricsSource::MetricSeries> FakeMetricsSource::GetRequestHistory(chrono::seconds window) {
+FetchResult<MetricSeries> FakeMetricsSource::GetRequestHistory(chrono::seconds window) {
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
     }

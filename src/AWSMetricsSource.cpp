@@ -109,7 +109,7 @@ FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
 
 // Hay que decir IMetricsSource pq ya no está dentro de scope, en el .h sí Dentro de la definición de la clase derivada, C++ permite 
 // acceder a tipos heredados directamente, pero en el .cpp ya no.
-FetchResult<IMetricsSource::MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector<string>& ids, chrono::seconds window) {
+FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector<string>& ids, chrono::seconds window) {
     
     return RetryOnFailure([this, &ids, window]() -> FetchResult<MetricSeriesByInstance> { 
     
@@ -261,7 +261,7 @@ FetchResult<unordered_map<string, double>> AWSMetricsSource::GetCurrentCpus(
     return {FetchStatus::Ok, current};
 }
 
-FetchResult<IMetricsSource::MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds window) {
+FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds window) {
 
     return RetryOnFailure([this, window]() -> FetchResult<MetricSeries> {
 

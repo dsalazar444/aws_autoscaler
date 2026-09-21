@@ -1,9 +1,32 @@
 #pragma once
 
 #include <unordered_map>
-#include <iostream>
+#include <string>
 #include <vector>
 #include <chrono>
+
+struct MetricSample {
+    std::chrono::system_clock::time_point timestamp;
+    double value; // puede representar un procentaje (cpu) o un numero entero (requests promedio -> 1000 -> 1000 + 1000 + 1000 / 3)
+    };
+
+// Contiene la series de tiempo de: o una instancia en un rango de tiempo (cpu de instancia A de 9 a 10)
+// o metricas promedio de las instancias en rango de tiempo (request promedio de todas las instancias, de 9 a 10)
+using MetricSeries = std::vector<MetricSample>;
+
+
+// Series de tiempo separadas por instancia. Se usa para CPU: Analytics necesita
+// los valores de TODAS las instancias en cada instante para calcular el p95
+// entre instancias -- si esto fuera una sola serie ya mezclada, esa informacion
+// se pierde antes de llegar a Analytics.
+// id:string
+// --- 
+// INVARIANTE: siempre viene ordenada ASCENDENTE por timestamp (el mas viejo en
+// front(), el mas nuevo en back()). AWSMetricsSource la garantiza pidiendole a
+// CloudWatch ScanBy=TimestampAscending explicitamente (el default de la API es
+// al reves: TimestampDescending). Cualquier otro codigo que construya un
+// MetricSeries (ej. al rellenar huecos) debe respetar este orden.
+using MetricSeriesByInstance = std::unordered_map<std::string, MetricSeries>;
 
 // Indica si la LLAMADA a AWS tuvo exito o no. Esto es independiente de si el
 // valor devuelto esta "completo": una llamada puede ser Ok y aun asi traer
@@ -25,27 +48,10 @@ struct FetchResult {
     // con conts indicamos que esta función solamente consulta el objeto -> no puede modificarlo
 };
 
+
 class IMetricsSource{
 public:
-
-    // struct necesario porque todas instancias lo necesitan. y publico porque es retornado por una función publica
-    struct MetricSample {
-    std::chrono::system_clock::time_point timestamp;
-    double value; // puede representar un procentaje (cpu) o un numero entero (requests promedio -> 1000 -> 1000 + 1000 + 1000 / 3)
-    };
-
-    // Contiene la series de tiempo de: o una instancia en un rango de tiempo (cpu de instancia A de 9 a 10)
-    // o metricas promedio de las instancias en rango de tiempo (request promedio de todas las instancias, de 9 a 10)
-    using MetricSeries = std::vector<MetricSample>;
-
     
-    // Series de tiempo separadas por instancia. Se usa para CPU: Analytics necesita
-    // los valores de TODAS las instancias en cada instante para calcular el p95
-    // entre instancias -- si esto fuera una sola serie ya mezclada, esa informacion
-    // se pierde antes de llegar a Analytics.
-    // id:string
-    using MetricSeriesByInstance = std::unordered_map<std::string, MetricSeries>;
-
     // hereda a sus hijos destructor.
     virtual ~IMetricsSource() = default;
 
