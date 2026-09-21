@@ -35,7 +35,7 @@ FetchResult<vector<string>> FakeMetricsSource::GetInstanceIds() {
     return {FetchStatus::Ok, _instanceIds};
 }
 
-FetchResult<unordered_map<string, double>> FakeMetricsSource::GetCurrentCpus(
+FetchResult<CurrentCpuSnapshot> FakeMetricsSource::GetCurrentCpus(
     const vector<string>& ids) {
         
     if (ConsumeFailureFlag()) {
@@ -63,7 +63,11 @@ FetchResult<unordered_map<string, double>> FakeMetricsSource::GetCurrentCpus(
                             : clamp(_baselineCpuPercent + noise(_rng), 0.0, 100.0); // para que valor no salga de rango (0,100) -> si es menor -> 0, si es mayor -> 100
         result[id] = value;
     }
-    return {FetchStatus::Ok, result};
+
+    // el Fake no sufre el problema de retraso de publicacion de CloudWatch --
+    // todas las instancias "reportan" en el mismo instante sintetico, asi que
+    // simplemente usamos el reloj real como timestamp del snapshot
+    return {FetchStatus::Ok, CurrentCpuSnapshot{chrono::system_clock::now(), result}};
 }
 
 FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(

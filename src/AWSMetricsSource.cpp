@@ -201,7 +201,7 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
     });
 }
 
-FetchResult<unordered_map<string, double>> AWSMetricsSource::GetCurrentCpus(
+FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
     const vector<string>& ids) {
 
     auto history = GetCpuHistory(ids, CURRENT_WINDOW); //ya acá hicimos el retry, por eso no se pone en esta func
@@ -262,7 +262,11 @@ FetchResult<unordered_map<string, double>> AWSMetricsSource::GetCurrentCpus(
         // a proposito -- que tan grave es esa ausencia (y si vale la pena pedirle
         // un valor al Predictor) lo decide el Validator, no esta funcion
     }
-    return {FetchStatus::Ok, current};
+
+    // el timestamp elegido (la moda) viaja empaquetado junto al mapa -- sin
+    // esto, Controller no tendria forma de saber a que instante corresponde
+    // este snapshot, y no podria pasarselo despues a Validator::ValidateCurrentCpu
+    return {FetchStatus::Ok, CurrentCpuSnapshot{targetTimestamp, current}};
 }
 
 FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds window) {

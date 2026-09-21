@@ -48,6 +48,18 @@ struct FetchResult {
     // con conts indicamos que esta función solamente consulta el objeto -> no puede modificarlo
 };
 
+// GetCurrentCpu no solo tiene que decir "cuanto" -- tiene que decir TAMBIEN
+// "a que instante corresponde ese valor". Ese instante lo elige la propia
+// implementacion (la moda de los ultimos timestamps disponibles, ver
+// AWSMetricsSource) y no es necesariamente "ahora mismo" (retraso de
+// publicacion de CloudWatch) -- por eso viaja empaquetado junto al mapa en
+// vez de perderse dentro de la funcion. Quien reciba esto (Controller) lo
+// necesita intacto para pasarselo despues a Validator::ValidateCurrentCpu.
+struct CurrentCpuSnapshot {
+    std::chrono::system_clock::time_point timestamp;
+    std::unordered_map<std::string, double> valuesByInstance;
+};
+
 
 class IMetricsSource{
 public:
@@ -60,7 +72,7 @@ public:
 
     // retorna mapa (id_instancia, cpu usage) de cpus en tiempo actual -> por eso no usamos
     // metricsample, porque timestamp es el actual
-    virtual FetchResult<std::unordered_map<std::string, double>> GetCurrentCpus(
+    virtual FetchResult<CurrentCpuSnapshot> GetCurrentCpus(
         const std::vector<std::string>& ids) = 0;
 
     // importa timestamp,value e id -> <id, metricSample>

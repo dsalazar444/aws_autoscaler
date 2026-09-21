@@ -22,7 +22,7 @@ public:
 
     FetchResult<std::vector<std::string>> GetInstanceIds() override;
 
-    FetchResult<std::unordered_map<std::string, double>> GetCurrentCpus(const std::vector<std::string>& ids) override;
+    FetchResult<CurrentCpuSnapshot> GetCurrentCpus(const std::vector<std::string>& ids) override;
     FetchResult<MetricSeriesByInstance> GetCpuHistory(
         const std::vector<std::string>& ids,
         std::chrono::seconds window) override;
