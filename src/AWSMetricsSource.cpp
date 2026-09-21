@@ -3,6 +3,7 @@
 #include <aws/autoscaling/model/DescribeAutoScalingGroupsRequest.h>
 #include <aws/monitoring/model/Dimension.h>
 #include <aws/monitoring/model/GetMetricDataRequest.h>
+#include <aws/monitoring/model/ScanBy.h>
 #include <algorithm>
 #include <thread>
 
@@ -124,7 +125,10 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
         auto now = chrono::system_clock::now(); 
         request.SetStartTime(Aws::Utils::DateTime(now - window)); // window porque será history
         request.SetEndTime(Aws::Utils::DateTime(now));
-        
+        // el default de CloudWatch es TimestampDescending (mas nuevo primero) --
+        // lo forzamos a ascendente para cumplir la invariante de MetricSeries
+        request.SetScanBy(Aws::CloudWatch::Model::ScanBy::TimestampAscending);
+
         // 1. Para cada instancia, construimos DataMetricquery
         for (size_t i = 0; i < ids.size(); ++i) {
             Aws::CloudWatch::Model::Metric metric; // objeto que representará que metrica queremos consultar
@@ -289,6 +293,7 @@ FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds wi
     auto now = chrono::system_clock::now();
     request.SetStartTime(Aws::Utils::DateTime(now - window));
     request.SetEndTime(Aws::Utils::DateTime(now));
+    request.SetScanBy(Aws::CloudWatch::Model::ScanBy::TimestampAscending);
     request.AddMetricDataQueries(query);
  
 

@@ -66,9 +66,9 @@ public:
     // importa timestamp,value e id -> <id, metricSample>
     // Historico de CPU de los ultimos `window`, separado por instancia.
 
-    // Ultima lectura de CPU por instancia (id -> % CPU). Instancias sin dato
-    // reciente quedan fuera del mapa -- el Controller lo trata como metrica faltante,
-    // no como 0%.
+    // Ultima lectura de CPU por instancia (id -> % CPU), todas referidas al
+    // MISMO instante (ver GetCurrentCpu en AWSMetricsSource para el porque).
+    // Una instancia sin dato en ese instante queda fuera del mapa.
     virtual FetchResult<MetricSeriesByInstance> GetCpuHistory(
         const std::vector<std::string>& ids,
         std::chrono::seconds window) = 0;
