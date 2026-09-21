@@ -129,6 +129,10 @@ void FakeMetricsSource::SetCpuOverride(const string& instanceId, double value) {
     _cpuOverrides[instanceId] = value;
 }
 
+void FakeMetricsSource::SetRequestOverride(const string& instanceId, double value) {
+    _requestOverrides[instanceId] = value;
+}
+
 void FakeMetricsSource::SetNextCallFails(bool shouldFail) {
     _forceNextCallToFail = shouldFail;
 }
