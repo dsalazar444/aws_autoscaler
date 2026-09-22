@@ -69,9 +69,14 @@ ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus(
         return {ValidationStatus::Complete, {}};
     }
 
+    // --- Paso 2: si llego completo, no hay nada que hacer ---
+    if (presentCount == expectedCount) {
+        return {ValidationStatus::Complete, rawCurrentCpu};
+    }
+
     double completeness = static_cast<double>(presentCount) / static_cast<double>(expectedCount); // 5 de 8 llegaron -> 5 es present, 8 es expected
 
-    // --- Paso 2: si falta demasiado, ni lo intentamos rellenar ---
+    // --- Paso 3: si falta demasiado, ni lo intentamos rellenar ---
     // Rellenar 4 de 5 instancias faltantes con puras adivinanzas del Predictor
     // ya no es "un dato con huecos", es basicamente inventarse el ciclo entero.
     // Mejor decirle claramente a quien nos llama "no confies en esto".
@@ -79,11 +84,7 @@ ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus(
         return {ValidationStatus::InsufficientData, {}};
     }
 
-    // --- Paso 3: si llego completo, no hay nada que hacer ---
-    if (presentCount == expectedCount) {
-        return {ValidationStatus::Complete, rawCurrentCpu};
-    }
-
+ 
     // --- Paso 4: faltan ALGUNAS instancias (menos que el umbral) -> rellenar ---
     // Partimos de una copia de lo que si llego, y por ende tiene value, y solo tocamos las que faltan.
     unordered_map<string, double> filled = rawCurrentCpu;
@@ -188,6 +189,11 @@ ValidationResult<MetricSeriesByInstance> Validator::ValidateCpuHistory(
                                : static_cast<double>(validated.size()) / static_cast<double>(ids.size());
                                // verificamos si ids está vacio, y si no, obtenemos cuán completas quedaron -> ids validadas / ids 
                                // que llegaron 
+                               // Recordar que validated sale de rawCPU (es una copia), entonces lo que verificamos es la relacion
+                               // de esos con los ids "esperados"/totales -> por ejem: son 10 ids, pero en raw nos mandan solo 2
+                               // -> debemos indicar que esa fuente que predijimos "con solo dos ids" es insuficiente, pues, 
+                               // independientemente de si fue proque mandaron pocos ids, o porque tiene muchos huecos, 
+                               // no lo pudimos corregir (predecir y llenarlo) para el módulo que lo pidió
 
     if (completeness < _completenessThreshold) {
         // en los primeros ciclos del sistema, esto va a pasar seguido: casi
