@@ -42,6 +42,8 @@ public:
     //   o mas de las instancias, no confies en este ciclo, ni lo intentes rellenar".
     Validator(std::shared_ptr<IValuePredictor> predictor, double completenessThreshold = 0.5);
 
+    // ValidateCurrentRequest no tiene sentido, porque request es un dato, si no está, no hay mucho que hacer   
+    
     // Revisa el snapshot "actual" de CPU que devolvio Metricas (rawCurrentCpus),
     // que puede venir INCOMPLETO: si una instancia de `ids` no tiene dato este
     // ciclo, simplemente no aparece como llave en values, del FetchResult (o sea, en rawCurrentCpu)
@@ -83,6 +85,13 @@ public:
         std::chrono::system_clock::time_point now,
         std::chrono::seconds window,
         std::chrono::seconds period);
+
+    // Mismo que ValidatCPUHistory, pero para request -> retorna validationResult con vector de metricsSamples relleno
+    ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
+        const MetricSeries& rawRequestHistory,
+        chrono::system_clock::time_point now,
+        chrono::seconds window,
+        chrono::seconds period);
 
 private:
     std::shared_ptr<IValuePredictor> _predictor;

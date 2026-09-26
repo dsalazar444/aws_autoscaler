@@ -22,7 +22,7 @@ vector<chrono::system_clock::time_point> BuildExpectedTimestamps(
 
     vector<chrono::system_clock::time_point> expected;
 
-    for (auto t = now - window; t <= now; t += period) { // 15:00 - 5 min = 14:55 -> 14:55 <= 15:00, t= 14:55 + 1:00 = 14:56
+    for (auto t = now - window; t <= now; t += period) { // 15:00 - 5 min = 14:55 -> 14:55 <= 15:00, t= 14:55 + 1:00 m = 14:56
         // inicio desde ventana (inicio) -> voy avanzando de minuto en minuto, hasta llegar a now (tiempo "final")
         expected.push_back(t);
 
@@ -50,7 +50,8 @@ bool HasSampleNear(const MetricSeries& series, chrono::system_clock::time_point 
 Validator::Validator(shared_ptr<IValuePredictor> predictor, double completenessThreshold)
     : _predictor(move(predictor)), _completenessThreshold(completenessThreshold) {}
 
-ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus(
+
+ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus( // timestamp especifico
     const vector<string>& ids,
     const unordered_map<string, double>& rawCurrentCpu,
     const MetricSeriesByInstance& cpuHistory,
@@ -121,6 +122,72 @@ ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus(
 
     return {ValidationStatus::Filled, filled};
 }
+
+ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
+    const MetricSeries& rawRequestHistory,
+    chrono::system_clock::time_point now,
+    chrono::seconds window,
+    chrono::seconds period) {
+
+    // --- Paso 1: el grid de instantes que "deberiamos" tener ---
+    auto expectedTimestamps = BuildExpectedTimestamps(now, window, period);
+
+    bool anyGapFilled = false;
+    MetricSeries filledHistory = rawRequestHistory; // creamos copia de historial, a la que añadiremos predicciones
+
+    size_t validSamples = 0;
+
+    for (const auto& expectedTs : expectedTimestamps) { // vamos por cada uno de los metricSample/timestamp, que deberia tener bucket
+        
+        auto it = std::find_if( rawRequestHistory.begin(), rawRequestHistory.end(),
+                    [&](const MetricSample& sample) {
+                        return sample.timestamp == expectedTs;
+                    });
+
+        // si hay dato con ese timestamp, continuamos 
+        if (it != rawRequestHistory.end()) {
+            ++validSamples;
+            continue;
+        }
+
+        // si no hay datos, le pedimos al Predictor un estimado usando el historial 
+        auto estimated = _predictor->EstimateAt(rawRequestHistory, expectedTs);
+
+        if (estimated.has_value()) {
+            filledHistory.push_back({expectedTs, *estimated});
+            ++validSamples;
+            anyGapFilled = true;
+        }
+        // si el predictor tampoco pudo (ej. muy pocos puntos reales en
+        // rawHistory), ese bucket(metricSample) simplemente queda sin dato (ese timestamp no estará en el metricSerie 
+        // history que retornemos -> no es que se añade vacio, es que no se añade)
+    }
+
+    // insertamos los rellenos al final del bucle, asi que hay que
+    // reordenar por timestamp antes de entregar la serie
+    sort(filledHistory.begin(), filledHistory.end(),
+        [](const MetricSample& a, const MetricSample& b) {
+            return a.timestamp < b.timestamp;
+        });
+
+    // --- Paso 4: completitud en Historial -- razon entre timestamps esperados, y el history final
+    // si filledHistory es menos del 50% de los timestamp esperados, no tiene sentido actuar con base a esos datos
+    double completeness = expectedTimestamps.empty()
+            ? 1.0
+            : static_cast<double>(validSamples) / static_cast<double>(expectedTimestamps.size()); // cuantos
+
+    if (completeness < _completenessThreshold) {
+        // en los primeros ciclos del sistema, esto va a pasar seguido: casi
+        // no hay historico todavia, asi que casi ninguna instancia cumple.
+        // Es exactamente la situacion que hace que Controller deba mantener
+        // capacidad mientras se acumula suficiente historia
+        return {ValidationStatus::InsufficientData, {}};
+    }
+
+    return {anyGapFilled ? ValidationStatus::Filled : ValidationStatus::Complete, filledHistory};
+    // retorna objeto, en el que el "estado" se define con ternario, y el segundo componente, siempre es filledHistory
+}
+
 
 ValidationResult<MetricSeriesByInstance> Validator::ValidateCpuHistory(
     const vector<string>& ids,
