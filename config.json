@@ -1,0 +1,23 @@
+{
+    "aws": {
+        "asgName": "",
+        "tgArn": ""
+    },
+    "falseData": "True",
+
+    "minInstances": 1,
+    "maxInstances": 5,
+
+    "highThreshold": 70.0,
+    "lowThreshold": 30.0,
+    
+    "historyWindow": "30",
+    "horizonWindow": "9",
+    "sustainedHighWindow": "4" ,
+    "sustainedLowWindow": "6" ,
+    "queryPeriod": "60",
+      
+    "scaleOutCooldown": "CHANGE",
+    "scaleInCooldown": "CHANGE"
+
+}

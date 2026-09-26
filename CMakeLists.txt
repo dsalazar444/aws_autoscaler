@@ -11,11 +11,14 @@ find_package(AWSSDK REQUIRED COMPONENTS
     monitoring
     ec2
 )
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(aws-autoscaler
     src/main.cpp
 )
 
 target_link_libraries(aws-autoscaler
-    ${AWSSDK_LIBRARIES}
+    PRIVATE
+        ${AWSSDK_LIBRARIES}
+        nlohmann_json::nlohmann_json
 )

@@ -8,7 +8,10 @@
                 "autoscaling",
                 "monitoring",
                 "ec2"
-            ]
+            ]  
+        },
+        {
+            "name": "nlohmann-json"
         }
     ]
 }
