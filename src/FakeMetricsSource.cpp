@@ -25,6 +25,7 @@ FakeMetricsSource::FakeMetricsSource(vector<string> instanceIds,
       _retentionWindow(retentionWindow),
       _persistenceDirectory(move(persistenceDirectory)),
       _startTime(chrono::system_clock::now()) {
+    // _cpuHistoryStore{}
 
     if (_persistenceDirectory.has_value()) {
         // si no se puede crear la carpeta, simplemente no se persiste nada 
@@ -129,9 +130,7 @@ FetchResult<CurrentCpuSnapshot> FakeMetricsSource::GetCurrentCpus(const vector<s
 }
 
 // history de ids
-FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(
-
-    const vector<string>& ids, chrono::seconds window) {
+FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(const vector<string>& ids, chrono::seconds window) {
     
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
@@ -198,10 +197,27 @@ void FakeMetricsSource::SetCpuOverride(const string& instanceId, double value) {
     // inyeccion real dentro de la serie, no un baseline pasivo aparte
 }
 
+void FakeMetricsSource::SetRequestOverride(double value) {
+
+    auto now = chrono::system_clock::now();
+    EnsureRequestHistoryUpTo(now);  // asegura que exista al menos un punto que sobreescribir
+
+    _requestHistoryStore.back().value = clamp(value, 0.0, 100.0); //asignamos valor que pasamos, solo que nos aseguramos que este dentro de ranfo
+    // el walk continua desde este valor forzado en el proximo paso -- es una
+    // inyeccion real dentro de la serie, no un baseline pasivo aparte
+}
+
+
 void FakeMetricsSource::SetNextCallFails(bool shouldFail) {
 
     _forceNextCallToFail = shouldFail;
 }
+
+// Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds
+void FakeMetricsSource::SetInstanceIds(vector<string> newIds){
+    _instanceIds = move(newIds);
+}
+
 
 void FakeMetricsSource::PruneAndPersist(const string& seriesName, MetricSeries& series, chrono::system_clock::time_point now) {
     

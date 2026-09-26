@@ -71,11 +71,17 @@ public:
     FetchResult<double> GetCurrentRequest() override;
     FetchResult<MetricSeries> GetRequestHistory(std::chrono::seconds window) override;
 
+    // porque como get lee atributo, debemos actualizarlo manualmente con set -> solo es para ese, porque en demas funciones
+    // se debe pasar objeto ids, no se toma de atributos
+    void SetInstanceIds(std::vector<std::string> newIds); 
+    
     // Inyecta un "shock" en el walk de esta instancia AHORA MISMO (ej. para
     // forzar un escenario de scale-out sin esperar a que el random walk
     // llegue solo). El walk sigue avanzando desde este valor en el proximo
     // paso -- no es un baseline pasivo, es un punto real de la serie.
     void SetCpuOverride(const std::string& instanceId, double value);
+
+    void SetRequestOverride(double value);
 
     // Hace que la proxima llamada (cualquiera de las de arriba) devuelva
     // FetchStatus::ApiError, para probar el manejo de fallos de Controller
