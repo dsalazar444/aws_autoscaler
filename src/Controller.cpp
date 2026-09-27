@@ -2,6 +2,8 @@
 #include "AWSMetricsSource.h"
 #include "FakeMetricsSource.h"
 #include "LinearRegressionPredictor.h"
+#include "Analytics.h"
+#include "Validator.h"
 
 
 #include <nlohmann/json.hpp>
@@ -9,6 +11,9 @@
 #include <stdexcept>
 
 using namespace std;
+using namespace Analytics;
+using namespace ValidatorUtils;
+
 using json = nlohmann::json;
 
 Controller::Controller(string configFile)
@@ -76,7 +81,7 @@ json LoadConfig(const string& configFile) {
 }
 
 
-bool Controller::getInstanceIds(){
+bool Controller::GetInstanceIds(){
     // Independientemente de si es falseData o no, se obtendrán los datos de un asg group real
     // se buscan datos falsos, pero acciones verdaderas
 
@@ -93,7 +98,8 @@ bool Controller::getInstanceIds(){
     return true;
 }
 
-FetchResult<CurrentCpuSnapshot> Controller::getCurrentCpus(){
+// GetCurrents tienen sus propias funciones para poder implementar setOVerrideMetric
+FetchResult<CurrentCpuSnapshot> Controller::GetCurrentCpus(){
 
     uniform_int_distribution<int> chance(1, 5); // genera int -> 1 tiene probabilidad de salir de un 20%
 
@@ -119,9 +125,7 @@ FetchResult<CurrentCpuSnapshot> Controller::getCurrentCpus(){
     return _metricsSource->GetCurrentCpus(_instanceIds);
 }
 
-//getrequest
-
-FetchResult<double> Controller::getCurrentRequest(){
+FetchResult<double> Controller::GetCurrentRequest(){
 
     uniform_int_distribution<int> chance(1, 5); // genera int -> 1 tiene probabilidad de salir de un 20%
 
@@ -139,11 +143,11 @@ FetchResult<double> Controller::getCurrentRequest(){
 }
 
 
-auto Controller::lifeCycle(){
+void Controller::LifeCycle(){
     // obtener ids en primer ciclo -> settea atributo _ids -> si false, return
 
     // Paso 1: Obtener instancias actuales
-    if (!getInstanceIds()){
+    if (!GetInstanceIds()){
         // LogAndMaintain(now, -1, "fallo la consulta de instancias a AWS tras agotar reintentos");
         return;
     }
@@ -155,20 +159,22 @@ auto Controller::lifeCycle(){
         return;
     }
 
-    // TODO: vaidaciones aca de isOk de fetch
+    // TODO: 
 
     // Aquie deberia ir la def de currentCoun -> int currentCount = static_cast<int>(ids.size());
     // si no, seguir para pedir métricas
 
+    auto now = chrono::system_clock::now(); // Tendrá ligera diferencia a generado en getCurrents, pero por eso tenemos un timestampTolerance en demás funciones
+
     // --- Paso 3: snapshot actual de CPU y Request
-    FetchResult<CurrentCpuSnapshot> currentCpus = getCurrentCpus();
+    FetchResult<CurrentCpuSnapshot> currentCpus = GetCurrentCpus();
 
     if (!currentCpus.IsOk()) {
         //LogAndMaintain(now, currentCount, "fallo la consulta de CPU actual a AWS tras agotar reintentos");
         return;
     }
 
-    FetchResult<double> currentRequest = getCurrentRequest();
+    FetchResult<double> currentRequest = GetCurrentRequest();
 
     if (!currentRequest.IsOk()) {
         //LogAndMaintain(now, currentCount, "fallo la consulta de Request actual a AWS tras agotar reintentos");
@@ -179,13 +185,14 @@ auto Controller::lifeCycle(){
     // Proactivo ---
 
     FetchResult<MetricSeriesByInstance> historyCpus = _metricsSource->GetCpuHistory(_instanceIds, _historyWindow);
-    FetchResult<MetricSeries> historyRequest = _metricsSource->GetRequestHistory(_historyWindow);
-
+    
     if (!historyCpus.IsOk()) {
         // LogAndMaintain(now, currentCount, "fallo la consulta de historico de CPU a AWS tras agotar reintentos");
         return;
     }
-
+    
+    FetchResult<MetricSeries> historyRequest = _metricsSource->GetRequestHistory(_historyWindow);
+    
     if (!historyRequest.IsOk()) {
         // LogAndMaintain(now, currentCount, "fallo la consulta de historico de Request a AWS tras agotar reintentos");
         return;
@@ -193,13 +200,51 @@ auto Controller::lifeCycle(){
 
     // --- Paso 5: validar el historico completo (rellenar huecos, o
     // descartar el ciclo si falta demasiado) ---
-    
-    // TODO: Revisar validador -> cpu y request -> ver claude
 
+    ValidationResult<MetricSeriesByInstance> validatedCpuHistory = _validator.ValidateCpuHistory(_instanceIds, historyCpus.value, now, _historyWindow, _queryPeriod);
+    if (validatedCpuHistory.status == ValidationStatus::InsufficientData) {
+        // esto va a pasar seguido en los primeros ciclos del sistema, mientras
+        // se acumula suficiente historico --  la respuesta es  mantener y registrar por que
+        // LogAndMaintain(now, currentCount,
+        //                 "historico de CPU insuficiente para evaluar (posiblemente el sistema esta arrancando)");
+        return;
+    }
+
+    ValidationResult<MetricSeries> validatedRequestHistory = _validator.ValidateRequestHistory(historyRequest.value, now, _historyWindow, _queryPeriod);
+    if (validatedRequestHistory.status == ValidationStatus::InsufficientData) {
+        // LogAndMaintain(now, currentCount,
+        //                 "historico de Request insuficiente para evaluar (posiblemente el sistema esta arrancando)");
+        return;
+    }
+
+    // el snapshot actual tambien se valida, pero solo hace falta si mas
+    // adelante se decide reducir (para elegir que instancia remover) -- si
+    // viene insuficiente, NO se bloquea todo el ciclo aqui; se maneja mas
+    // adelante, solo si de verdad se llega a necesitar
+
+    // NOTA: Usamos validatedCpusHistory, y no cpuHistory, porque aprovechamos que ya esta validada
+    // y nunca será vacia, porque si llega hasta acá, es porque paso if de insufficientData
+    ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu = _validator.ValidateCurrentCpus(
+        _instanceIds, currentCpus.value.valuesByInstance, validatedCpuHistory.value,
+        currentCpus.value.timestamp);
+    
+    // --- Paso 6: reducir el historico de CPU por instancia a UNA serie global (p95) ---
+    // solo CPU, porque Request ya vienen promediados
+
+    // El expectedTimestamp  que espera CalculatGlobalSeries debe coincidir con los que se "creó" el HistoryCpus
+    vector<chrono::system_clock::time_point> expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, _historyWindow, _queryPeriod);
+    MetricSeries globalCpusHistory = CalculateGlobalCpuSeries(validatedCpuHistory.value, expectedTimestamps);
+
+    // Evaluate 
 }
 
 
+void GetEvaluate(const MetricSeries& globalCpuHistory,
+                std::chrono::system_clock::time_point now){
 
+    // Proactive
+    
+}
 
 
 // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds

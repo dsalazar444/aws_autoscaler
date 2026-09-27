@@ -26,7 +26,7 @@ public:
     
 
     // Ciclo completo
-    auto Controller::lifeCycle();
+    void Controller::LifeCycle();
 
 private:
     nlohmann::json _config;
@@ -73,11 +73,13 @@ private:
     
     // TODO: Ponerlas publicas o privadas? 
     nlohmann::json LoadConfig(const string& configFile);
+
+    bool GetInstanceIds();
     
-    bool getInstanceIds();
-    
-    FetchResult<CurrentCpuSnapshot> getCurrentCpus();
-    FetchResult<double> getCurrentRequest();
+    FetchResult<CurrentCpuSnapshot> GetCurrentCpus();
+    FetchResult<double> GetCurrentRequest();
+
+    void Evaluate();
 
     // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds
     void SetInstanceIds(std::vector<std::string> newIds);

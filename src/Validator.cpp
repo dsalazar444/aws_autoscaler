@@ -4,7 +4,7 @@
 
 using namespace std;
 
-namespace {
+namespace ValidatorUtils {
 
 // Tolerancia para considerar que un timestamp REAL "coincide" con uno
 // ESPERADO del grid -- por pequeños desfases de publicacion de CloudWatch
@@ -130,7 +130,7 @@ ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
     chrono::seconds period) {
 
     // --- Paso 1: el grid de instantes que "deberiamos" tener ---
-    auto expectedTimestamps = BuildExpectedTimestamps(now, window, period);
+    auto expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, window, period);
 
     bool anyGapFilled = false;
     MetricSeries filledHistory = rawRequestHistory; // creamos copia de historial, a la que añadiremos predicciones
@@ -197,7 +197,7 @@ ValidationResult<MetricSeriesByInstance> Validator::ValidateCpuHistory(
     chrono::seconds period) {
 
     // --- Paso 1: el grid de instantes que "deberiamos" tener por instancia ---
-    auto expectedTimestamps = BuildExpectedTimestamps(now, window, period);
+    auto expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, window, period);
 
     MetricSeriesByInstance validated;
     bool anyGapFilled = false;
@@ -220,7 +220,7 @@ ValidationResult<MetricSeriesByInstance> Validator::ValidateCpuHistory(
 
         // --- Paso 3: revisar bucket por bucket (metricsample por metricsample) si falta algo ---
         for (const auto& expectedTs : expectedTimestamps) { // vamos por cada uno de los metricSample/timestamp, que deberia tener bucket
-            if (HasSampleNear(rawSeries, expectedTs)) {
+            if (ValidatorUtils::HasSampleNear(rawSeries, expectedTs)) {
                 continue;  // ya hay dato real cerca de este instante, no tocar
             }
 

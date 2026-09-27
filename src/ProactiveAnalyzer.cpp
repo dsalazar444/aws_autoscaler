@@ -6,7 +6,7 @@ ProactiveAnalyzer::ProactiveAnalyzer(shared_ptr<IValuePredictor> predictor,
                                       double highThreshold)
     : _predictor(move(predictor)), _horizon(horizon), _highThreshold(highThreshold) {}
 
-ProactiveSignal ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory,
+ProactiveEvaluation ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory, //TODO: Cambiar nombre, a globalMetricHistory
                                             chrono::system_clock::time_point now) {
     // --- Paso 1: pedirle al motor matematico un estimado en "ahora + horizonte" ---
     auto targetTimestamp = now + _horizon;
@@ -14,7 +14,7 @@ ProactiveSignal ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory
 
     // --- Paso 2: sin suficiente historico, no hay opinion que dar ---
     if (!estimated.has_value()) {
-        return ProactiveSignal::Unknown;
+        return {ProactiveSignal::Unknown, std::nullopt};
     }
 
     // --- Paso 3: interpretar el numero contra el umbral alto ---
@@ -23,8 +23,8 @@ ProactiveSignal ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory
     // solo necesita responder: "¿se predice peligro (superar el umbral alto)
     // o no?"
     if (*estimated > _highThreshold) {
-        return ProactiveSignal::PredictsAboveHighThreshold;
+        return {ProactiveSignal::PredictsAboveHighThreshold, estimated};
     }
-    return ProactiveSignal::PredictsSafe; //por sí sola, no es suficiente para autorizar un
+    return {ProactiveSignal::PredictsSafe, estimated}; //por sí sola, no es suficiente para autorizar un
     // scale-in — sería una condición necesaria pero no suficiente, y Controller haría la verificación fina con N-1 antes de confirmar.
 }

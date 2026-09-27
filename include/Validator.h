@@ -4,6 +4,8 @@
 #include "IValuePredictor.h"
 
 #include <memory>
+#include <vector>
+#include <chrono>
 
 // Que tan "confiable" quedo un dato despues de revisarlo.
 //
@@ -33,6 +35,19 @@ struct ValidationResult {
 // nada de CloudWatch ni de AWS (eso es de Metricas), y NO calcula p95 ni
 // umbrales de escalado (eso es de Analytics) -- solo se preocupa por la
 // completitud del dato.
+
+namespace ValidatorUtils {
+
+    std::vector<std::chrono::system_clock::time_point> BuildExpectedTimestamps(
+        std::chrono::system_clock::time_point now,
+        std::chrono::seconds window,
+        std::chrono::seconds period);
+
+    bool HasSampleNear(
+        const MetricSeries& series,
+        std::chrono::system_clock::time_point target);
+}
+
 class Validator {
 public:
 

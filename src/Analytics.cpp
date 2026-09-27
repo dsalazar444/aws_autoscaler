@@ -46,18 +46,20 @@ MetricSeries CalculateGlobalCpuSeries(
 
     for (const auto& bucketTimestamp : expectedTimestamps) {
 
-        // --- recolectar el valor de CADA instancia en este bucket ---
+        // --- recolectar el valor de CADA instancia en este bucket (timestamp) si se "parece" a expectedTimestamp---
         vector<double> valuesAtBucket;
 
         for (const auto& [id, series] : perInstanceHistory) {
             // series es un vector de MetricSample
-            auto it = find_if(series.begin(), series.end(), [&](const MetricSample& sample) {
-                auto diff = sample.timestamp > bucketTimestamp ? sample.timestamp - bucketTimestamp
-                                                                 : bucketTimestamp - sample.timestamp;
-                return diff <= timestampTolerance;
+            auto it = find_if(series.begin(), series.end(), 
+                [&](const MetricSample& sample) {
+                    auto diff = sample.timestamp > bucketTimestamp ? sample.timestamp - bucketTimestamp
+                                                                    : bucketTimestamp - sample.timestamp;
+                    return diff <= timestampTolerance;
                 // calculamos para cada dato su diferencia con el timestamp buscado, si es menor a la 
                 // tolerancia, salimos de ciclo.
-            });
+                });
+
             if (it != series.end()) {
                 valuesAtBucket.push_back(it->value);
             }

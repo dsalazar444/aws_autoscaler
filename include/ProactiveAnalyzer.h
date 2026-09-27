@@ -25,6 +25,17 @@ enum class ProactiveSignal {
     Unknown
 };
 
+// Empaqueta la señal JUNTO con el valor numerico predicho -- igual que con
+// CurrentCpuSnapshot, no queremos que Controller pierda el numero real: lo
+// necesita para la formula de cuantas instancias mover, no solo para saber
+// "sube o no sube". estimatedValue es nullopt exactamente cuando signal es
+// Unknown (no hubo con que predecir).
+struct ProactiveEvaluation {
+    ProactiveSignal signal;
+    std::optional<double> estimatedValue;
+};
+
+
 class ProactiveAnalyzer {
 public:
     // predictor: el motor matematico (ej. LinearRegressionPredictor). 
@@ -43,7 +54,7 @@ public:
     // no sabe nada de instancias individuales, solo trabaja sobre la serie global.
     // now: el instante desde el cual se cuenta el horizonte (parametro, no
     // system_clock::now() interno, para poder probarlo con un tiempo fijo).
-    ProactiveSignal Evaluate(const MetricSeries& globalCpuHistory,
+    ProactiveEvaluation Evaluate(const MetricSeries& globalCpuHistory,
                               std::chrono::system_clock::time_point now);
 
 private:
