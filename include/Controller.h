@@ -16,6 +16,7 @@
 #include "ReactiveAnalyzer.h"
 #include "AWSActioner.h"
 #include "DecidedAction.h"
+#include "Logger.h"
 
 // Indica estado de controller
 // Idle es revisando datos y tomando decisión
@@ -84,6 +85,7 @@ private:
     ProactiveAnalyzer _proactive;
     ReactiveAnalyzer _reactive;
     AWSActioner _actioner;
+    Logger _logger;
     
     // TODO: Ponerlas publicas o privadas? 
     nlohmann::json LoadConfig(const string& configFile);
@@ -93,16 +95,29 @@ private:
     FetchResult<CurrentCpuSnapshot> GetCurrentCpus();
     FetchResult<double> GetCurrentRequest();
 
-    void EvaluateAndDecide(const MetricSeries& globalCpuHistory,
-                    ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
-                    const MetricSeries& requestHistory,
-                    std::chrono::system_clock::time_point now);
+    void BuildAndSendRecord(std::chrono::system_clock::time_point now, optional<std::chrono::seconds> window,
+                int instanceCount, std::optional<double> currentGlobalCpu,
+                std::optional<double> currentGlobalReq, const std::string& justification,
+                std::optional<ReactiveSignal> reactiveSignalCpu, std::optional<ReactiveSignal> reactiveSignalReq,
+                std::optional<ProactiveSignal> proactiveSignal,
+                std::optional<double> proactiveEstimatedCpu, int targetCount,
+                std::optional<std::string> idToDelete, Action decision, 
+                std::optional<ActionResult> actionResult);
+
+    void EvaluateAndDecide(const MetricSeries& globalCpusHistory,
+                ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+                const MetricSeries& historyRequest,
+                std::chrono::system_clock::time_point now,
+                optional<double> currentGlobalCpu,
+                FetchResult<double> currentRequest,
+                int totalActualInstances);
 
     scaleAction::DecidedAction Decide(const ProactiveEvaluation proactiveOpinion, 
             const ReactiveSignal reactiveOpinionCpu,
             const ReactiveSignal reactiveOpinionReq,
-            double currentGlobalCpu,
-            ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu);
+            std::optional<double> currentGlobalCpu,
+            ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
+            int totalActualInstances);
 
     std::optional<ActionResult> Act(scaleAction::DecidedAction action);
 

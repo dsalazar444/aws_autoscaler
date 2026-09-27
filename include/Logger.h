@@ -28,18 +28,17 @@ public:
 
         // Metrics and observation interval considered 
         std::string metricsConsidered = "CPU y Requests";
-        std::chrono::seconds analyzedWindow{0};  // el historyWindow configurado en Controller
+        optional<std::chrono::seconds> analyzedWindow{0};  // el historyWindow configurado en Controller
         
         // Existing state
         int instanceCountBefore = 0;
         std::optional<double> currentGlobalCpu;  // nullopt si no se pudo calcular este ciclo
         std::optional<double> currentGlobalReq;  // nullopt si no se pudo calcular este ciclo
-        // TODO: revisar si sí es opcional, yo creo que sí, porque puede fallar al obtenerlo
-        // - verificar los tipos, y ver si si es congruente con controller
-        
+
         // Decisions by modules
-        ReactiveSignal reactiveSignal = ReactiveSignal::InsufficientData;
-        ProactiveSignal proactiveSignal = ProactiveSignal::Unknown;
+        std::optional<ReactiveSignal> reactiveSignalCpu = ReactiveSignal::InsufficientData; // optional porque hay logs que se registran antes de siquiera llamarlos
+        std::optional<ReactiveSignal> reactiveSignalReq = ReactiveSignal::InsufficientData; // optional porque hay logs que se registran antes de siquiera llamarlos
+        std::optional<ProactiveSignal> proactiveSignal = ProactiveSignal::Unknown;
         std::optional<double> proactiveEstimatedCpu;
         int targetCount; // cantidad de MVs que quedarian en TOTAL segun acción.
         std::optional<std::string> idToDelete; // Si se decidió eliminar, cuál.

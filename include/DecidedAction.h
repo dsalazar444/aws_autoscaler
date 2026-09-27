@@ -15,6 +15,7 @@ namespace scaleAction
             Action action;
             int targetCount;
             std::optional<std::string> idToDelete;
+            std::string justification;
             
         };
     

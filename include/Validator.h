@@ -102,7 +102,7 @@ public:
         std::chrono::seconds period);
 
     // Mismo que ValidatCPUHistory, pero para request -> retorna validationResult con vector de metricsSamples relleno
-    ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
+    ValidationResult<MetricSeries> ValidateRequestHistory(
         const MetricSeries& rawRequestHistory,
         chrono::system_clock::time_point now,
         chrono::seconds window,

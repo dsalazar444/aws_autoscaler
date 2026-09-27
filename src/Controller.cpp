@@ -16,7 +16,23 @@ using namespace scaleAction; // De DecidedAction.h
 
 using json = nlohmann::json;
 
+namespace {
+    std::optional<double> GetCurrentGlobalCpu(const MetricSeries& history,
+        std::chrono::system_clock::time_point now,
+        std::chrono::seconds tolerance = std::chrono::seconds(15) ){ // TODO: Pedir ese timestamp por json, y pasarlo en las funciones, creo que son las de calcularGlobal, y las que usen expected timestamps
+    
+        const MetricSample& current = history.back();
+        auto difference = now > current.timestamp
+            ? now - current.timestamp
+            : current.timestamp - now;
 
+        if (difference <= tolerance) {
+            return current.value;
+        }
+
+        return std::nullopt;
+    }
+}
 Controller::Controller(string configFile)
     : _config(LoadConfig(configFile)),
       _state(State::Idle),
@@ -55,7 +71,8 @@ Controller::Controller(string configFile)
       _validator(_valuePredictor),
       _proactive(_valuePredictor, _horizonWindow, _highThresholdCpu),
       _reactive(_highThresholdCpu, _lowThresholdCpu, _highThresholdReq, _lowThresholdReq, _sustainedHighWindowCpu, _sustainedLowWindowCpu, _sustainedHighWindowReq),
-      _actioner(_asg) {
+      _actioner(_asg),
+      _logger(_config["logPathFile"].get<std::string>()) { // el logger es capaz de convertir de string a path, que es lo que espera su constructor
 
     // Inicializar nullptr (_metricsSource y _fakeMetricsSource) según _falseData
     if (_falseData) {
@@ -155,51 +172,75 @@ FetchResult<double> Controller::GetCurrentRequest(){
     return _metricsSource->GetCurrentRequest();
 }
 
+// Necesitamos esta funcion porque se puede salir de lifecycle sin llegar a crear
+// objeto DecidedAction, entonces se debe manejar el log
+void Controller::BuildAndSendRecord(std::chrono::system_clock::time_point now, optional<std::chrono::seconds> window,
+                int instanceCount, std::optional<double> currentGlobalCpu,
+                std::optional<double> currentGlobalReq, const std::string& justification,
+                std::optional<ReactiveSignal> reactiveSignalCpu, std::optional<ReactiveSignal> reactiveSignalReq,
+                std::optional<ProactiveSignal> proactiveSignal,
+                std::optional<double> proactiveEstimatedCpu, int targetCount,
+                std::optional<std::string> idToDelete, Action decision, 
+                std::optional<ActionResult> actionResult) {
+
+    Logger::DecisionRecord record;
+
+    record.timestamp = now;
+    // record.epochSeconds se calcula en logger
+    // record.metricsConsidered en esta version siempre tendrán valor por defecto
+    record.analyzedWindow = window; // Normalmente será _historyWindow
+    
+    record.instanceCountBefore = instanceCount;
+    record.currentGlobalCpu = currentGlobalCpu;
+    record.currentGlobalReq = currentGlobalReq;
+
+    record.reactiveSignalCpu = reactiveSignalCpu;
+    record.reactiveSignalReq = reactiveSignalReq;
+    record.proactiveSignal = proactiveSignal;
+    record.proactiveEstimatedCpu = proactiveEstimatedCpu;
+    record.targetCount = targetCount;
+    record.idToDelete = idToDelete;
+
+    record.decision = decision;
+    record.justification = justification;
+    record.actionResult = actionResult;  
+    
+    _logger.Log(record);
+
+    if (!actionResult.has_value()){
+        return;
+    }
+
+    if (actionResult.value() == ActionResult::Success) {
+        _state = State::CooldownOut;
+        _cooldownUntil = now + _scaleOutCooldown;
+    }
+}
 
 void Controller::LifeCycle(std::chrono::system_clock::time_point now){
 
-    if (_state != State::Idle) {
-        if (now < _cooldownUntil) {
-            // TODO: En cooldown -> eso de abajo?
-            // NOTA DE DISEÑO: por simplicidad, durante el cooldown no se
-            // vuelve a consultar Metricas -- se registra el ciclo igual,
-            // pero sin metricas nuevas. Si se quiere un log continuo con
-            // metricas en cada ciclo (incluso en cooldown), esto se puede
-            // extender despues sin tocar el resto de la logica.
-            // LogAndMaintain(now, -1, "en cooldown, esperando a que se estabilice la ultima accion");
-            // return;
-        }
-        // el cooldown ya expiro -- volvemos a Idle y seguimos evaluando
-        // este mismo ciclo con datos frescos
-        _state = State::Idle;
-    }
-
-    // obtener ids en primer ciclo -> settea atributo _ids -> si false, return
-
-    // Paso 1: Obtener instancias actuales
+    
+    // Paso 1: Obtener instancias actuales -> En cada ciclo, se debe hacer
     if (!GetInstanceIds()){
-        // LogAndMaintain(now, -1, "fallo la consulta de instancias a AWS tras agotar reintentos");
+        // Usamos -1 para indicar que no es que hayan 0 instancias, es que no las pudimos consultar
+        // No causará nuingun problema, pues ese valor es solo para log, no para calculos
+        BuildAndSendRecord(now, _historyWindow, -1, std::nullopt, std::nullopt, 
+            "Fallo la consulta de instancias a AWS tras agotar reintentos", std::nullopt, 
+            std::nullopt, std::nullopt, std::nullopt, -1, std::nullopt, Action::Mantain, std::nullopt);
+        
         return;
     }
 
-    // --- Paso 2: caso especial -- 0 instancias no es "no se sabe", es la
-    // confirmacion de que no hay capacidad sirviendo nada ---
-    if (_instanceIds.empty()){
-        // HandleZeroInstances(now);
-        return;
-    }
+    int totalActualInstances = static_cast<int>(_instanceIds.size());
 
-    // TODO: 
-
-    // Aquie deberia ir la def de currentCoun -> int currentCount = static_cast<int>(ids.size());
-    // si no, seguir para pedir métricas
-
-    //auto now = chrono::system_clock::now(); // Tendrá ligera diferencia a generado en getCurrents, pero por eso tenemos un timestampTolerance en demás funciones
-
-    // --- Paso 3: snapshot actual de CPU y Request
+    // --- Paso 2: snapshot actual de CPU y Request
     FetchResult<CurrentCpuSnapshot> currentCpus = GetCurrentCpus();
 
     if (!currentCpus.IsOk()) {
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, std::nullopt, 
+            "Fallo la consulta de CPU actual a AWS  tras agotar reintentos", std::nullopt, std::nullopt, 
+            std::nullopt, std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt);
+        
         //LogAndMaintain(now, currentCount, "fallo la consulta de CPU actual a AWS tras agotar reintentos");
         return;
     }
@@ -207,7 +248,11 @@ void Controller::LifeCycle(std::chrono::system_clock::time_point now){
     FetchResult<double> currentRequest = GetCurrentRequest();
 
     if (!currentRequest.IsOk()) {
-        //LogAndMaintain(now, currentCount, "fallo la consulta de Request actual a AWS tras agotar reintentos");
+
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, std::nullopt,
+            "Fallo la consulta de Request actual a AWS tras agotar reintentos", std::nullopt, std::nullopt, std::nullopt, 
+            std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
 
@@ -217,14 +262,21 @@ void Controller::LifeCycle(std::chrono::system_clock::time_point now){
     FetchResult<MetricSeriesByInstance> historyCpus = _metricsSource->GetCpuHistory(_instanceIds, _historyWindow);
     
     if (!historyCpus.IsOk()) {
-        // LogAndMaintain(now, currentCount, "fallo la consulta de historico de CPU a AWS tras agotar reintentos");
+        
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, currentRequest.value, 
+            "Fallo la consulta de historico de CPU a AWS tras agotar reintentos", std::nullopt, std::nullopt, std::nullopt, 
+            std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
     
     FetchResult<MetricSeries> historyRequest = _metricsSource->GetRequestHistory(_historyWindow);
     
     if (!historyRequest.IsOk()) {
-        // LogAndMaintain(now, currentCount, "fallo la consulta de historico de Request a AWS tras agotar reintentos");
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, currentRequest.value, 
+            "Fallo la consulta de historico de Request a AWS tras agotar reintentos", std::nullopt, std::nullopt,
+            std::nullopt, std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
 
@@ -234,16 +286,22 @@ void Controller::LifeCycle(std::chrono::system_clock::time_point now){
     ValidationResult<MetricSeriesByInstance> validatedCpuHistory = _validator.ValidateCpuHistory(_instanceIds, historyCpus.value, now, _historyWindow, _queryPeriod);
     if (validatedCpuHistory.status == ValidationStatus::InsufficientData) {
         // esto va a pasar seguido en los primeros ciclos del sistema, mientras
-        // se acumula suficiente historico --  la respuesta es  mantener y registrar por que
-        // LogAndMaintain(now, currentCount,
-        //                 "historico de CPU insuficiente para evaluar (posiblemente el sistema esta arrancando)");
+        // se acumula suficiente historico  (no llegamos ni siquiera a Analyzers)--  la respuesta es  mantener y registrar por que
+
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, currentRequest.value, 
+            "Historico de CPU insuficiente para evaluar (posiblemente el sistema esta arrancando)", std::nullopt, std::nullopt,
+            std::nullopt, std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
 
     ValidationResult<MetricSeries> validatedRequestHistory = _validator.ValidateRequestHistory(historyRequest.value, now, _historyWindow, _queryPeriod);
     if (validatedRequestHistory.status == ValidationStatus::InsufficientData) {
-        // LogAndMaintain(now, currentCount,
-        //                 "historico de Request insuficiente para evaluar (posiblemente el sistema esta arrancando)");
+        
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, currentRequest.value, 
+            "Historico de Request insuficiente para evaluar (posiblemente el sistema esta arrancando)", std::nullopt, std::nullopt,
+            std::nullopt, std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
 
@@ -266,22 +324,45 @@ void Controller::LifeCycle(std::chrono::system_clock::time_point now){
     // -> El expectedTimestamp  que espera CalculatGlobalSeries debe coincidir con los que se "creó" el HistoryCpus
     vector<chrono::system_clock::time_point> expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, _historyWindow, _queryPeriod);
     MetricSeries globalCpusHistory = CalculateGlobalCpuSeries(validatedCpuHistory.value, expectedTimestamps);
-
+    
     if (globalCpusHistory.empty()) {
-        // LogAndMaintain(now, currentCount,
-        //                 "ningun bucket del historico validado tuvo dato de ninguna instancia -- no hay serie global que evaluar");
+
+        BuildAndSendRecord(now, _historyWindow, totalActualInstances, std::nullopt, currentRequest.value, 
+            "Ningun bucket del historico de CPU validado tuvo dato de ninguna instancia -- no hay serie global de CPU que evaluar", std::nullopt, std::nullopt,
+            std::nullopt, std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt); 
+
         return;
     }
 
-    // Evaluate 
-    EvaluateAndDecide(globalCpusHistory, validatedCurrentCpu, historyRequest.value, now);
+    // Obtenemos currentCpuGlobal
+    optional<double> currentCpuGlobal = GetCurrentGlobalCpu(globalCpusHistory, now);
+
+    // Siempre obtendremos metricas, pero si estamos en coolingdown, no tomamos acciones
+    if (_state != State::Idle) {
+        if (now < _cooldownUntil) {
+    
+            BuildAndSendRecord(now, _historyWindow, totalActualInstances, currentCpuGlobal, currentRequest.value, 
+                "En cooldown, esperando a que se estabilice la ultima accion", std::nullopt, std::nullopt, std::nullopt, 
+                std::nullopt, totalActualInstances, std::nullopt, Action::Mantain, std::nullopt);
+
+            return;
+        }
+        // el cooldown ya expiro -- volvemos a Idle y seguimos evaluando
+        // este mismo ciclo con datos frescos
+        _state = State::Idle;
+    }
+    // Ya que estamos en Idle, evaluamos y ejecutamos
+    EvaluateAndDecide(globalCpusHistory, validatedCurrentCpu, historyRequest.value, now, currentCpuGlobal, currentRequest, totalActualInstances);
 }
 
 
 void Controller::EvaluateAndDecide(const MetricSeries& globalCpusHistory,
                 ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
                 const MetricSeries& historyRequest,
-                std::chrono::system_clock::time_point now){
+                std::chrono::system_clock::time_point now,
+                optional<double> currentGlobalCpu,
+                FetchResult<double> currentRequest,
+                int totalActualInstances){
     
     // --- Paso 7: preguntarle a Reactivo y Proactivo ---
 
@@ -292,23 +373,25 @@ void Controller::EvaluateAndDecide(const MetricSeries& globalCpusHistory,
     ReactiveSignal reactiveOpinionCpu = _reactive.Evaluate("cpu", globalCpusHistory, now);
     ReactiveSignal reactiveOpinionReq = _reactive.Evaluate("req", historyRequest, now);
     
-    double currentGlobalCpu = globalCpusHistory.back().value; 
-
-    DecidedAction action = Decide(proactiveOpinion, reactiveOpinionCpu, reactiveOpinionReq, currentGlobalCpu, validatedCurrentCpu);
+    DecidedAction action = Decide(proactiveOpinion, reactiveOpinionCpu, reactiveOpinionReq, currentGlobalCpu, validatedCurrentCpu, totalActualInstances);
     
     optional<ActionResult> actionResult = Act(action);
 
-    
+    // Acá se genera el log de acción
+    BuildAndSendRecord(now, std::nullopt, totalActualInstances, currentGlobalCpu, currentRequest.value, 
+        action.justification, reactiveOpinionCpu, reactiveOpinionReq, proactiveOpinion.signal, proactiveOpinion.estimatedValue, 
+        action.targetCount, action.idToDelete, action.action, actionResult); 
 
 }
 
 DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion, 
             const ReactiveSignal reactiveOpinionCpu,
             const ReactiveSignal reactiveOpinionReq, 
-            double currentGlobalCpu,
-            ValidationResult<unordered_map<string, double>> validatedCurrentCpu){
+            optional<double> currentGlobalCpu,
+            ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+            int totalActualInstances){
     
-    int totalActualInstances = static_cast<int>(_instanceIds.size());
+
 
     // Reglas
     if (reactiveOpinionCpu == ReactiveSignal::InsufficientData) {
@@ -316,9 +399,7 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
         // es más grande (horizonte). Y tampoco lo que diga reactiveRequest, pues está solo es decisiva
         // si reactiveCpu es Normal
     
-        // LogAndMaintain(now, currentCount, "Reactivo no tiene suficiente ventana cubierta todavia",
-        //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-        return {Action::Mantain, totalActualInstances, nullopt};
+        return {Action::Mantain, totalActualInstances, nullopt, "Reactivo no tiene suficiente ventana cubierta todavia para decidir estado sostenido"};
     }
     
     // --- Paso 8: SCALE-OUT -- OR entre Reactivo y Proactivo ---
@@ -338,14 +419,14 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
         // crear, porque necesitariamos saber idealRequestPerVM, que no es fácil. Entonces por simplicidad
         // se añade solo una
         if (reactiveOpinionCpu == ReactiveSignal::Normal){
-            int targetCountInstances = totalActualInstances + 1 ? totalActualInstances < _maxInstances : totalActualInstances; // Verificamos que no nos salgamos de _maxInstance
+            int targetCountInstances = totalActualInstances < _maxInstances ? totalActualInstances + 1 : totalActualInstances; // Verificamos que no nos salgamos de _maxInstance
         } else {
             
             // referencia de carga a suplir (usada para calcular ideal de VMs a agregar que suplan necesidad, ya sea actual (por reactive) o futura (por proactive))
             // : la PEOR entre lo observado y lo predicho --
             // si Proactivo predice algo peor que el presente, hay que
             // dimensionar para eso, no solo para el estado actual
-            double referenceCpu = currentGlobalCpu;
+            double referenceCpu = currentGlobalCpu.has_value() ? currentGlobalCpu.value() : 0.0;
             if (proactiveOpinion.estimatedValue.has_value()) {
                 referenceCpu = max(referenceCpu, *proactiveOpinion.estimatedValue);
             }
@@ -358,13 +439,10 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
             // actual ya alcanza (o ya estamos en el tope permitido) -- no
             // hay una accion real que tomar
 
-            // LogAndMaintain(now, currentCount,
-            //                 "condicion de scale-out detectada, pero la capacidad actual ya es suficiente o esta en el tope",
-            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-            return {Action::Mantain, totalActualInstances, nullopt};
+            return {Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-out detectada, pero la capacidad actual ya es suficiente o esta en el tope"};
         }
 
-        return {Action::Increment, targetCountInstances, nullopt};     
+        return {Action::Increment, targetCountInstances, nullopt, "Se cumplió condición para aumentar instancias"};     
     
     };
 
@@ -377,30 +455,25 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
     if (triggersScaleIn) {
         // < solo por salvaguarda, pero actual no deberia ser menor a minInstances
         if (totalActualInstances <= _minInstances) {
-            // LogAndMaintain(now, currentCount,
-            //                 "condicion de scale-in detectada, pero ya se esta en el minimo de instancias permitido",
-            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-            return {Action::Mantain, totalActualInstances, nullopt};
+
+            return {Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-in detectada, pero ya se esta en el minimo de instancias permitido"};
         }
 
         // chequeo fino de seguridad: ¿sigue siendo seguro con UNA instancia
         // menos? -> se usa la misma
         // referencia de carga (peor entre lo actual y lo predicho), pero
         // proyectada contra currentCount-1, no contra currentCount.
-        double referenceCpu = currentGlobalCpu;
+        double referenceCpu = currentGlobalCpu.has_value() ? currentGlobalCpu.value() : 0.0;
         if (proactiveOpinion.estimatedValue.has_value()) {
             referenceCpu = max(referenceCpu, *proactiveOpinion.estimatedValue);
         }
 
         double projectedAtNMinusOne = referenceCpu * totalActualInstances / (totalActualInstances - 1); // Dará mayor a 0 porque totalInstances es > minInstances, puesto que no cayó en primer if
 
-        // Si cpu del sistema, al quitarle una instancia, es mayor a highThershold, no tiene sentido quitarla
+        // Si cpu del sistema, al quitarle una instancia, es mayor a highThershold, no tiene sentido quitarla 
         if (projectedAtNMinusOne > _highThresholdCpu) {
-            // LogAndMaintain(now, currentCount,
-            //                 "scale-in vetado: reducir una instancia proyectaria superar el umbral alto",
-            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-        
-            return {Action::Mantain, totalActualInstances, nullopt};
+    
+            return {Action::Mantain, totalActualInstances, nullopt, "Scale-in vetado: reducir una instancia proyectaria superar el umbral alto, es decir, capacidad resultante no podría soportar carga"};
         }
 
         // Obtener instancia con menor cpu a eliminar
@@ -411,24 +484,17 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
             // confiable para elegir CUAL instancia remover -- mas vale no
             // reducir a ciegas que reducir la equivocada
 
-            // LogAndMaintain(now, currentCount,
-            //                 "scale-in seria seguro segun la formula, pero no hay dato confiable para elegir que instancia remover",
-            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-            return {Action::Mantain, totalActualInstances, nullopt};
+            return {Action::Mantain, totalActualInstances, nullopt, "Scale-in seria seguro segun la formula, pero no hay dato confiable para elegir que instancia remover"};
         }
 
 
         string instanceToRemove = FindLeastLoadedInstance(validatedCurrentCpu.value);
 
-        return {Action::Decrement, totalActualInstances - 1, instanceToRemove};
+        return {Action::Decrement, totalActualInstances - 1, instanceToRemove,"Se cumplió condición para disminuir instancias" };
     }
 
     // --- Paso 10: ninguna condicion sostenida se cumplio ---
-    // LogAndMaintain(now, currentCount,
-    //                 "sin condiciones de escalado sostenidas; se mantiene la capacidad actual",
-    //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
-
-    return {Action::Mantain, totalActualInstances, nullopt};     
+    return {Action::Mantain, totalActualInstances, nullopt, "Ninguna condición de escalado se cumplió, se mantiene la capacidad actual"};     
 }
 
 optional<ActionResult> Controller::Act(DecidedAction action){

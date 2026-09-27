@@ -23,8 +23,13 @@ namespace {
         return "UNKNOWN";  // defensivo -- no deberia alcanzarse
     }
     
-    std::string ToString(ReactiveSignal signal) {
-        switch (signal) {
+    std::string ToString(std::optional<ReactiveSignal> signal) {
+
+        if (!signal.has_value()){
+            return "null";
+        }
+
+        switch (signal.value()) {
             case ReactiveSignal::SustainedHigh:
                 return "SUSTAINED_HIGH";
             case ReactiveSignal::SustainedLow:
@@ -34,11 +39,17 @@ namespace {
             case ReactiveSignal::InsufficientData:
                 return "INSUFFICIENT_DATA";
         }
+
         return "UNKNOWN";
     }
     
-    std::string ToString(ProactiveSignal signal) {
-        switch (signal) {
+    std::string ToString(std::optional<ProactiveSignal> signal) {
+        
+        if (!signal.has_value()){
+            return "null";
+        }
+
+        switch (signal.value()) {
             case ProactiveSignal::PredictsAboveHighThreshold:
                 return "PREDICTS_ABOVE_HIGH_THRESHOLD";
             case ProactiveSignal::PredictsSafe:
@@ -74,6 +85,7 @@ namespace {
     // valor o "null" -- para los campos opcionales que pueden faltar segun en
     // que punto del ciclo se genero el registro (ej. currentGlobalCpu si fallo
     // Metricas antes de poder calcularlo)
+    // Util solo para tipos de datos comunes, para datos propios se debe usar método propio (por ejm: toString de Reactive y Proactive signals)
     template <typename T>
     std::string optionalToString(const std::optional<T>& value) {
         if (!value.has_value()) {
@@ -89,6 +101,14 @@ namespace {
         }
 
         return oss.str();
+    }
+
+    std::string optionalWindowToString(const std::optional<std::chrono::seconds> window){
+        if (!window.has_value()){
+            return "Indeterminado. Revise archivo config.json para ver ventanas definidas para este Analyzer";
+        }
+
+        std::to_string(window.value().count());
     }
 }
 
@@ -116,11 +136,10 @@ void Logger::LogTerminal(const DecisionRecord& record){
     cout << "Actual metrics used to make decision: \n" 
          << "globalCpu=" <<  optionalToString(record.currentGlobalCpu) << "%\n"
          << "globalRequest= " << optionalToString(record.currentGlobalReq);
-    
-        //TODO: Poner request
 
     cout << "Modules signals: \n" 
-         << "reactiveSignal: " << ToString(record.reactiveSignal) << ",\n"
+         << "reactiveSignalCpu: " << ToString(record.reactiveSignalCpu) << ",\n"
+         << "reactiveSignalReq: " << ToString(record.reactiveSignalReq) << ",\n"
          << "proactiveSignal:" << ToString(record.proactiveSignal) << ",\n"
          << "proactiveEstimatedCpu:" << optionalToString(record.proactiveEstimatedCpu) << ",\n"
          << "targetCount:" << record.targetCount << ",\n"
@@ -151,13 +170,14 @@ void Logger::LogJSON(const DecisionRecord& record){
          << "\"epochSeconds\":" << epochSeconds << ","
 
          << "\"metricsConsidered\":" << record.metricsConsidered << ","
-         << "\"analyzedWindowSeconds\":" << record.analyzedWindow.count() << ","
+         << "\"analyzedWindowSeconds\":" << optionalWindowToString(record.analyzedWindow) << ","
 
          << "\"instanceCountBefore\":" << record.instanceCountBefore << ","
          << "\"currentGlobalCpu\":" << optionalToString(record.currentGlobalCpu) << ","
          << "\"currentGlobalReq\":" << optionalToString(record.currentGlobalReq) << ","
 
-         << "\"reactiveSignal\":\"" << ToString(record.reactiveSignal) << "\","
+         << "\"reactiveSignalCpu\":\"" << ToString(record.reactiveSignalCpu) << "\","
+         << "\"reactiveSignalReq\":\"" << ToString(record.reactiveSignalReq) << "\","
          << "\"proactiveSignal\":\"" << ToString(record.proactiveSignal) << "\","
          << "\"proactiveEstimatedCpu\":" << optionalToString(record.proactiveEstimatedCpu) << ","
          << "\"targetCount\":" << record.targetCount << ","

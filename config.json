@@ -25,6 +25,8 @@
     "queryPeriod": "60",
       
     "scaleOutCooldown": "CHANGE",
-    "scaleInCooldown": "CHANGE"
+    "scaleInCooldown": "CHANGE",
+
+    "logPathFile": "CHANGE"
 
 }
