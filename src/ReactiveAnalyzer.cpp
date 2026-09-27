@@ -13,7 +13,7 @@ enum class SustainedCheckResult { Sustained, NotSustained, InsufficientData };
 // Tolerancia pequeña al medir si el historico "cubre" el inicio de la
 // ventana -- para no ser demasiado estrictos por un desfase de pocos
 // segundos entre buckets de muestreo.
-constexpr chrono::seconds COVERAGE_TOLERANCE{30};
+constexpr chrono::seconds COVERAGE_TOLERANCE{15};
 
 // Revisa si TODOS los puntos dentro de [now - window, now] cumplen la
 // condicion (por encima o por debajo de threshold, segun checkAbove).
@@ -74,35 +74,51 @@ SustainedCheckResult CheckSustained(const MetricSeries& history,
 
 }  // namespace
 
-ReactiveAnalyzer::ReactiveAnalyzer(double highThreshold, double lowThreshold,
-                                    std::chrono::seconds highWindow,
-                                    std::chrono::seconds lowWindow)
-    : _highThreshold(highThreshold),
-      _lowThreshold(lowThreshold),
-      _highWindow(highWindow),
-      _lowWindow(lowWindow) {}
+ReactiveAnalyzer::ReactiveAnalyzer(double highThresholdCpu, double lowThresholdCpu,
+                                   double highThresholdReq, double lowThresholdReq,
+                                   std::chrono::seconds highWindowCpu, std::chrono::seconds lowWindowCpu,
+                                   std::chrono::seconds highWindowReq)
+    : _highThresholdCpu(highThresholdCpu),
+      _lowThresholdCpu(lowThresholdCpu),
+      _highThresholdReq(highThresholdReq),
+      _lowThresholdReq(lowThresholdReq),
+      _highWindowCpu(highWindowCpu),
+      _lowWindowCpu(lowWindowCpu),
+      _highWindowReq(highWindowReq)
+       {}
 
-ReactiveSignal ReactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory,
+ReactiveSignal ReactiveAnalyzer::Evaluate(const std::string metricType, const MetricSeries& globalMetricHistory,
                                            std::chrono::system_clock::time_point now) {
+
+    auto _highWindow = metricType == "cpu" ? _highWindowCpu : _highWindowReq;
+    auto _highThreshold = metricType == "cpu" ? _highThresholdCpu : _highThresholdReq;
+
 
     // Revisamos primero la condicion ALTA: ventana mas corta (n min), asi
     // que es la que mas rapido alcanza a tener suficiente historico, y ademas
     // es la mas urgente de las dos (evitar quedarse sin capacidad pesa mas
     // que perder una oportunidad de ahorrar).
     // Indicamos checkAbove como true, y si se mantiene, retornamos señal de sustainedHigh (nuestra opinión)
-    auto highResult = CheckSustained(globalCpuHistory, now, _highWindow, _highThreshold,
+    auto highResult = CheckSustained(globalMetricHistory, now, _highWindow, _highThreshold,
                                       /*checkAbove=*/true);
     if (highResult == SustainedCheckResult::Sustained) {
         return ReactiveSignal::SustainedHigh;
     }
 
-    // Solo si NO esta sostenido alto (no por falta de datos) tiene sentido
-    // preguntar por la condicion BAJA -- si ya sabemos que hay riesgo de
-    // sobrecarga, no hace falta ni evaluar si es seguro reducir.
-    auto lowResult = CheckSustained(globalCpuHistory, now, _lowWindow, _lowThreshold,
-                                     /*checkAbove=*/false);
-    if (lowResult == SustainedCheckResult::Sustained) {
-        return ReactiveSignal::SustainedLow;
+    SustainedCheckResult lowResult = SustainedCheckResult::NotSustained; // porque hay que inicializarlo con algun valor. El más seguro es notSustained
+
+    // Request no nos interesa si predice bajo -> ver lógica de decisión en Controller. 
+    // En resumen, request solo actua si CPU es normal, y request se predice alta
+    if (metricType == "cpu"){
+
+        // Solo si NO esta sostenido alto (no por falta de datos) tiene sentido
+        // preguntar por la condicion BAJA -- si ya sabemos que hay riesgo de
+        // sobrecarga, no hace falta ni evaluar si es seguro reducir.
+        lowResult = CheckSustained(globalMetricHistory, now, _lowWindowCpu, _lowThresholdCpu,
+                                         /*checkAbove=*/false);
+        if (lowResult == SustainedCheckResult::Sustained) {
+            return ReactiveSignal::SustainedLow;
+        }
     }
 
     // Si CUALQUIERA de las dos revisiones no tuvo suficiente historico, todo

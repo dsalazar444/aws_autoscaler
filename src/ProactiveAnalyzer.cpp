@@ -6,7 +6,7 @@ ProactiveAnalyzer::ProactiveAnalyzer(shared_ptr<IValuePredictor> predictor,
                                       double highThreshold)
     : _predictor(move(predictor)), _horizon(horizon), _highThreshold(highThreshold) {}
 
-ProactiveEvaluation ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory, //TODO: Cambiar nombre, a globalMetricHistory
+ProactiveEvaluation ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory, 
                                             chrono::system_clock::time_point now) {
     // --- Paso 1: pedirle al motor matematico un estimado en "ahora + horizonte" ---
     auto targetTimestamp = now + _horizon;

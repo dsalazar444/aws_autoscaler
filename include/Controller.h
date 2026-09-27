@@ -6,27 +6,34 @@
 #include <string>
 #include <nlohmann/json.hpp>
 #include <vector>
+#include <optional>
+
 //#include <chrono>
 #include "IMetricsSource.h"
 #include "IValuePredictor.h"
 #include "Validator.h"
 #include "ProactiveAnalyzer.h"
 #include "ReactiveAnalyzer.h"
+#include "AWSActioner.h"
+#include "DecidedAction.h"
 
 // Indica estado de controller
 // Idle es revisando datos y tomando decisión
 // Acting es cuando estamos haciendo llamadas a AWS, luego de tomar decisión
 // Cooling es cuando la acción tuvo exito, y estamos en tiempo de cool down.
-enum class State {Idle, Acting, Cooling};
+enum class State { Idle, CooldownOut, CooldownIn };
 
 class Controller {
 public:
+
     //  No se le pasa nada, atributos se leen de archivo config.json
     Controller(std::string configFile);
     
 
     // Ciclo completo
-    void Controller::LifeCycle();
+    // now ->  para tener instante en que se ejecuta ciclo, y mantenerlo
+    // lastAction -> porque cooldown depende de qué se hizo anteriormente
+    void Controller::LifeCycle(std::chrono::system_clock::time_point now);
 
 private:
     nlohmann::json _config;
@@ -43,24 +50,30 @@ private:
     int _minInstances;
     int _maxInstances;
     
-    double _highThreshold;
-    double  _lowThreshold;
+    double _highThresholdCpu;
+    double _lowThresholdCpu;
+
+    int _highThresholdReq;
+    int _lowThresholdReq;
     
     std::chrono::seconds _historyWindow; // Window usada para pedir historial -> debe ser lo suficientemente grande
     // para que historial sirva a predictive y a proactive
     std::chrono::seconds _horizonWindow; // Horizonte sobre el cual proactive predicirá -> >= tiempo de acción + margen
-    std::chrono::seconds _sustainedHighWindow; // Window que metrica debe estar por encima de highthreshold para que reactive actue -> La 
+
+    std::chrono::seconds _sustainedHighWindowCpu; // Window que metrica debe estar por encima de highthreshold para que reactive actue -> La 
     // implementamos (el sustained..Window en general) para evitar reaccionar a picos puntuales, que no servirá reaccionar porque para cuando se 
     // cree instancia, ya abrá pasado
-    std::chrono::seconds _sustainedLowWindow; // Window que metrica debe estar por debajo de lowthreshold para que reactive actue 
+    std::chrono::seconds _sustainedLowWindowCpu; // Window que metrica debe estar por debajo de lowthreshold para que reactive actue 
 
-
-
+    std::chrono::seconds _sustainedHighWindowReq;
 
     std::chrono::seconds _queryPeriod; // el mismo periodo de muestreo que usa Metricas (ej. 60s)
     
     std::chrono::seconds _scaleOutCooldown;
     std::chrono::seconds _scaleInCooldown;
+    std::chrono::system_clock::time_point _cooldownUntil; // Solo tiene sentido si _state =! Idle
+
+    
     
     std::mt19937 _rng; // para cpuoverride, generar valores
     
@@ -70,6 +83,7 @@ private:
     Validator _validator;
     ProactiveAnalyzer _proactive;
     ReactiveAnalyzer _reactive;
+    AWSActioner _actioner;
     
     // TODO: Ponerlas publicas o privadas? 
     nlohmann::json LoadConfig(const string& configFile);
@@ -79,7 +93,23 @@ private:
     FetchResult<CurrentCpuSnapshot> GetCurrentCpus();
     FetchResult<double> GetCurrentRequest();
 
-    void Evaluate();
+    void EvaluateAndDecide(const MetricSeries& globalCpuHistory,
+                    ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
+                    const MetricSeries& requestHistory,
+                    std::chrono::system_clock::time_point now);
+
+    scaleAction::DecidedAction Decide(const ProactiveEvaluation proactiveOpinion, 
+            const ReactiveSignal reactiveOpinionCpu,
+            const ReactiveSignal reactiveOpinionReq,
+            double currentGlobalCpu,
+            ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu);
+
+    std::optional<ActionResult> Act(scaleAction::DecidedAction action);
+
+    
+    int CalculateMinimumSafeInstanceCount(int currentCount, double referenceCpu) const;
+    
+    std::string FindLeastLoadedInstance(const std::unordered_map<std::string, double>& validatedCurrentCpu) const;
 
     // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds
     void SetInstanceIds(std::vector<std::string> newIds);

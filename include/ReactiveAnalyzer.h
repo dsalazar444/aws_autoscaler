@@ -21,18 +21,24 @@ public:
     // lowWindow: cuanto tiempo debe sostenerse por debajo de lowThreshold
     //   para considerar scale-in ("2n min" -- mas largo a proposito, ya
     //   que reducir es la accion mas riesgosa).
-    ReactiveAnalyzer(double highThreshold, double lowThreshold,
-                      std::chrono::seconds highWindow, std::chrono::seconds lowWindow);
+    ReactiveAnalyzer(double highThresholdCpu, double lowThresholdCpu,
+                     double highThresholdReq, double lowThresholdReq,
+                     std::chrono::seconds highWindowCpu, std::chrono::seconds lowWindowCpu,
+                     std::chrono::seconds highWindowReq);
 
     // globalCpuHistory: la serie YA REDUCIDA que produce Analytics (p95 entre
     // instancias, un valor por bucket de tiempo) -- igual que ProactiveAnalyzer,
     // Reactivo no sabe nada de instancias individuales.
-    ReactiveSignal Evaluate(const MetricSeries& globalCpuHistory,
+    // MetricType debe ser "cpu" o "req"
+    ReactiveSignal Evaluate(const std::string metricType, const MetricSeries& globalMetricHistory,
                              std::chrono::system_clock::time_point now);
 
 private:
-    double _highThreshold;
-    double _lowThreshold;
-    std::chrono::seconds _highWindow;
-    std::chrono::seconds _lowWindow;
+    double _highThresholdCpu;
+    double _lowThresholdCpu;
+    double _highThresholdReq;
+    double _lowThresholdReq;
+    std::chrono::seconds _highWindowCpu;
+    std::chrono::seconds _lowWindowCpu;
+    std::chrono::seconds _highWindowReq;
 };

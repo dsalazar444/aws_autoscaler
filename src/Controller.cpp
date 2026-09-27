@@ -5,16 +5,17 @@
 #include "Analytics.h"
 #include "Validator.h"
 
-
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <stdexcept>
 
 using namespace std;
-using namespace Analytics;
-using namespace ValidatorUtils;
+using namespace Analytics; // De Analytics.h
+using namespace ValidatorUtils; // De Validator.h
+using namespace scaleAction; // De DecidedAction.h
 
 using json = nlohmann::json;
+
 
 Controller::Controller(string configFile)
     : _config(LoadConfig(configFile)),
@@ -26,23 +27,35 @@ Controller::Controller(string configFile)
       _metricsSource(nullptr),
       _idsSource(make_unique<AWSMetricsSource>(_asg, _targetGroupArn)),
       _fakeMetricsSource(nullptr),
+
       _minInstances(_config["minInstances"].get<int>()),
       _maxInstances(_config["maxInstances"].get<int>()),
-      _highThreshold(_config["highThreshold "].get<double>()),
-      _lowThreshold(_config["lowThreshold "].get<double>()),
+
+      _highThresholdCpu(_config["highThresholdCpu"].get<double>()),
+      _lowThresholdCpu(_config["lowThresholdCpu"].get<double>()),
+      _highThresholdReq(_config["highThresholdReq"].get<int>()),
+      _lowThresholdReq(_config["lowThresholdReq"].get<int>()),
+
       _historyWindow(chrono::seconds{stoll(_config["historyWindow"].get<string>())}),
       _horizonWindow(chrono::seconds{stoll(_config["horizonWindow"].get<string>())}),
-      _sustainedHighWindow(chrono::seconds{stoll(_config["sustainedHighWindow"].get<string>())}),
-      _sustainedLowWindow(chrono::seconds{stoll(_config["sustainedLowWindow"].get<string>())}),
+      
+      _sustainedHighWindowCpu(chrono::seconds{stoll(_config["sustainedHighWindowCpu"].get<string>())}),
+      _sustainedLowWindowCpu(chrono::seconds{stoll(_config["sustainedLowWindowCpu"].get<string>())}),
+      _sustainedHighWindowReq(chrono::seconds{stoll(_config["sustainedHighWindowReq"].get<string>())}),
+
       _queryPeriod(chrono::seconds{stoll(_config["queryPeriod"].get<std::string>())}),
+
       _scaleOutCooldown(chrono::seconds{stoll(_config["scaleOutCooldown"].get<std::string>())}),
       _scaleInCooldown(chrono::seconds{stoll(_config["scaleInCooldown"].get<std::string>())}),
+      _cooldownUntil(), // Se le agregará valor a medida que accion se ejecute exitosamente
+
       _rng(std::random_device{}()),
+
       _valuePredictor(make_shared<LinearRegressionPredictor>()),
       _validator(_valuePredictor),
-      _proactive(_valuePredictor, _horizonWindow, _highThreshold),
-      _reactive(_highThreshold, _lowThreshold, _sustainedHighWindow, _sustainedLowWindow) {
-
+      _proactive(_valuePredictor, _horizonWindow, _highThresholdCpu),
+      _reactive(_highThresholdCpu, _lowThresholdCpu, _highThresholdReq, _lowThresholdReq, _sustainedHighWindowCpu, _sustainedLowWindowCpu, _sustainedHighWindowReq),
+      _actioner(_asg) {
 
     // Inicializar nullptr (_metricsSource y _fakeMetricsSource) según _falseData
     if (_falseData) {
@@ -143,7 +156,24 @@ FetchResult<double> Controller::GetCurrentRequest(){
 }
 
 
-void Controller::LifeCycle(){
+void Controller::LifeCycle(std::chrono::system_clock::time_point now){
+
+    if (_state != State::Idle) {
+        if (now < _cooldownUntil) {
+            // TODO: En cooldown -> eso de abajo?
+            // NOTA DE DISEÑO: por simplicidad, durante el cooldown no se
+            // vuelve a consultar Metricas -- se registra el ciclo igual,
+            // pero sin metricas nuevas. Si se quiere un log continuo con
+            // metricas en cada ciclo (incluso en cooldown), esto se puede
+            // extender despues sin tocar el resto de la logica.
+            // LogAndMaintain(now, -1, "en cooldown, esperando a que se estabilice la ultima accion");
+            // return;
+        }
+        // el cooldown ya expiro -- volvemos a Idle y seguimos evaluando
+        // este mismo ciclo con datos frescos
+        _state = State::Idle;
+    }
+
     // obtener ids en primer ciclo -> settea atributo _ids -> si false, return
 
     // Paso 1: Obtener instancias actuales
@@ -164,7 +194,7 @@ void Controller::LifeCycle(){
     // Aquie deberia ir la def de currentCoun -> int currentCount = static_cast<int>(ids.size());
     // si no, seguir para pedir métricas
 
-    auto now = chrono::system_clock::now(); // Tendrá ligera diferencia a generado en getCurrents, pero por eso tenemos un timestampTolerance en demás funciones
+    //auto now = chrono::system_clock::now(); // Tendrá ligera diferencia a generado en getCurrents, pero por eso tenemos un timestampTolerance en demás funciones
 
     // --- Paso 3: snapshot actual de CPU y Request
     FetchResult<CurrentCpuSnapshot> currentCpus = GetCurrentCpus();
@@ -224,27 +254,230 @@ void Controller::LifeCycle(){
 
     // NOTA: Usamos validatedCpusHistory, y no cpuHistory, porque aprovechamos que ya esta validada
     // y nunca será vacia, porque si llega hasta acá, es porque paso if de insufficientData
-    ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu = _validator.ValidateCurrentCpus(
+    ValidationResult<unordered_map<string, double>> validatedCurrentCpu = _validator.ValidateCurrentCpus(
         _instanceIds, currentCpus.value.valuesByInstance, validatedCpuHistory.value,
         currentCpus.value.timestamp);
     
     // --- Paso 6: reducir el historico de CPU por instancia a UNA serie global (p95) ---
     // solo CPU, porque Request ya vienen promediados
 
-    // El expectedTimestamp  que espera CalculatGlobalSeries debe coincidir con los que se "creó" el HistoryCpus
+    // reutilizamos el MISMO grid que uso Validator para rellenar, asi los
+    // buckets calzan entre lo que Validator entrego y lo que Analytics agrupa
+    // -> El expectedTimestamp  que espera CalculatGlobalSeries debe coincidir con los que se "creó" el HistoryCpus
     vector<chrono::system_clock::time_point> expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, _historyWindow, _queryPeriod);
     MetricSeries globalCpusHistory = CalculateGlobalCpuSeries(validatedCpuHistory.value, expectedTimestamps);
 
+    if (globalCpusHistory.empty()) {
+        // LogAndMaintain(now, currentCount,
+        //                 "ningun bucket del historico validado tuvo dato de ninguna instancia -- no hay serie global que evaluar");
+        return;
+    }
+
     // Evaluate 
+    EvaluateAndDecide(globalCpusHistory, validatedCurrentCpu, historyRequest.value, now);
 }
 
 
-void GetEvaluate(const MetricSeries& globalCpuHistory,
+void Controller::EvaluateAndDecide(const MetricSeries& globalCpusHistory,
+                ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+                const MetricSeries& historyRequest,
                 std::chrono::system_clock::time_point now){
+    
+    // --- Paso 7: preguntarle a Reactivo y Proactivo ---
 
-    // Proactive
+    // Proactive -> solo CPU
+    ProactiveEvaluation proactiveOpinion = _proactive.Evaluate(globalCpusHistory, now);
+
+    // Reactive -> CPU y Request
+    ReactiveSignal reactiveOpinionCpu = _reactive.Evaluate("cpu", globalCpusHistory, now);
+    ReactiveSignal reactiveOpinionReq = _reactive.Evaluate("req", historyRequest, now);
+    
+    double currentGlobalCpu = globalCpusHistory.back().value; 
+
+    DecidedAction action = Decide(proactiveOpinion, reactiveOpinionCpu, reactiveOpinionReq, currentGlobalCpu, validatedCurrentCpu);
+    
+    optional<ActionResult> actionResult = Act(action);
+
+    
+
+}
+
+DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion, 
+            const ReactiveSignal reactiveOpinionCpu,
+            const ReactiveSignal reactiveOpinionReq, 
+            double currentGlobalCpu,
+            ValidationResult<unordered_map<string, double>> validatedCurrentCpu){
+    
+    int totalActualInstances = static_cast<int>(_instanceIds.size());
+
+    // Reglas
+    if (reactiveOpinionCpu == ReactiveSignal::InsufficientData) {
+        // Si reactive no tiene suficiente data, menos lo tendrá proactive, pues su ventana
+        // es más grande (horizonte). Y tampoco lo que diga reactiveRequest, pues está solo es decisiva
+        // si reactiveCpu es Normal
+    
+        // LogAndMaintain(now, currentCount, "Reactivo no tiene suficiente ventana cubierta todavia",
+        //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+        return {Action::Mantain, totalActualInstances, nullopt};
+    }
+    
+    // --- Paso 8: SCALE-OUT -- OR entre Reactivo y Proactivo ---
+
+    // Nota: No verificamos min ni max de instancias, porque queremos loggear eso.
+    // CalculateMinimumSafeInstanceCount da siempre entre rangos, y cuando se calcula sin este, tambien se verifica
+    bool triggersScaleOut = (reactiveOpinionCpu == ReactiveSignal::SustainedHigh 
+                || proactiveOpinion.signal == ProactiveSignal::PredictsAboveHighThreshold)
+            || (reactiveOpinionCpu == ReactiveSignal::Normal 
+                && reactiveOpinionReq == ReactiveSignal::SustainedHigh);
+
+    if (triggersScaleOut) {
+
+        int targetCountInstances = 0;
+
+        // Si scale-out se dio por Request High, no usamos formula para calcular cuantas instancias
+        // crear, porque necesitariamos saber idealRequestPerVM, que no es fácil. Entonces por simplicidad
+        // se añade solo una
+        if (reactiveOpinionCpu == ReactiveSignal::Normal){
+            int targetCountInstances = totalActualInstances + 1 ? totalActualInstances < _maxInstances : totalActualInstances; // Verificamos que no nos salgamos de _maxInstance
+        } else {
+            
+            // referencia de carga a suplir (usada para calcular ideal de VMs a agregar que suplan necesidad, ya sea actual (por reactive) o futura (por proactive))
+            // : la PEOR entre lo observado y lo predicho --
+            // si Proactivo predice algo peor que el presente, hay que
+            // dimensionar para eso, no solo para el estado actual
+            double referenceCpu = currentGlobalCpu;
+            if (proactiveOpinion.estimatedValue.has_value()) {
+                referenceCpu = max(referenceCpu, *proactiveOpinion.estimatedValue);
+            }
+    
+            int targetCountInstances = CalculateMinimumSafeInstanceCount(totalActualInstances, referenceCpu);
+        }
+
+        if (targetCountInstances <= totalActualInstances) {
+            // la condicion se disparo, pero la formula dice que la capacidad
+            // actual ya alcanza (o ya estamos en el tope permitido) -- no
+            // hay una accion real que tomar
+
+            // LogAndMaintain(now, currentCount,
+            //                 "condicion de scale-out detectada, pero la capacidad actual ya es suficiente o esta en el tope",
+            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+            return {Action::Mantain, totalActualInstances, nullopt};
+        }
+
+        return {Action::Increment, targetCountInstances, nullopt};     
+    
+    };
+
+    // --- Paso 9: SCALE-IN -- AND entre Reactivo y Proactivo ---
+    // Unknown cuenta como veto (postura conservadora):
+    // solo PredictsSafe deja pasar el scale-in.
+
+    bool triggersScaleIn = reactiveOpinionCpu == ReactiveSignal::SustainedLow && proactiveOpinion.signal == ProactiveSignal::PredictsSafe;
+
+    if (triggersScaleIn) {
+        // < solo por salvaguarda, pero actual no deberia ser menor a minInstances
+        if (totalActualInstances <= _minInstances) {
+            // LogAndMaintain(now, currentCount,
+            //                 "condicion de scale-in detectada, pero ya se esta en el minimo de instancias permitido",
+            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+            return {Action::Mantain, totalActualInstances, nullopt};
+        }
+
+        // chequeo fino de seguridad: ¿sigue siendo seguro con UNA instancia
+        // menos? -> se usa la misma
+        // referencia de carga (peor entre lo actual y lo predicho), pero
+        // proyectada contra currentCount-1, no contra currentCount.
+        double referenceCpu = currentGlobalCpu;
+        if (proactiveOpinion.estimatedValue.has_value()) {
+            referenceCpu = max(referenceCpu, *proactiveOpinion.estimatedValue);
+        }
+
+        double projectedAtNMinusOne = referenceCpu * totalActualInstances / (totalActualInstances - 1); // Dará mayor a 0 porque totalInstances es > minInstances, puesto que no cayó en primer if
+
+        // Si cpu del sistema, al quitarle una instancia, es mayor a highThershold, no tiene sentido quitarla
+        if (projectedAtNMinusOne > _highThresholdCpu) {
+            // LogAndMaintain(now, currentCount,
+            //                 "scale-in vetado: reducir una instancia proyectaria superar el umbral alto",
+            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+        
+            return {Action::Mantain, totalActualInstances, nullopt};
+        }
+
+        // Obtener instancia con menor cpu a eliminar
+        // Debemos validar que ValidatedCurrent si tenga datos (en lifeCycle se valida solo history, current no porque solo la queriamos validar si se llegaba a necesitar)
+
+        if (validatedCurrentCpu.status == ValidationStatus::InsufficientData || validatedCurrentCpu.value.empty()) {
+            // la formula dice que seria seguro reducir, pero no hay dato
+            // confiable para elegir CUAL instancia remover -- mas vale no
+            // reducir a ciegas que reducir la equivocada
+
+            // LogAndMaintain(now, currentCount,
+            //                 "scale-in seria seguro segun la formula, pero no hay dato confiable para elegir que instancia remover",
+            //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+            return {Action::Mantain, totalActualInstances, nullopt};
+        }
+
+
+        string instanceToRemove = FindLeastLoadedInstance(validatedCurrentCpu.value);
+
+        return {Action::Decrement, totalActualInstances - 1, instanceToRemove};
+    }
+
+    // --- Paso 10: ninguna condicion sostenida se cumplio ---
+    // LogAndMaintain(now, currentCount,
+    //                 "sin condiciones de escalado sostenidas; se mantiene la capacidad actual",
+    //                 currentGlobalCpu, reactiveSignal, proactiveEval.signal, proactiveEval.estimatedValue);
+
+    return {Action::Mantain, totalActualInstances, nullopt};     
+}
+
+optional<ActionResult> Controller::Act(DecidedAction action){
+
+    // IdToDelete puede ser opcional, pro eso el has_value, porque solo se agrega si accion es decrement
+    // De resto, tanto name como TargetCount son obligatorios, siendo
+    // Si mantain -> tc = Actual
+    // si Reduce -> tc = actual -1
+    // si Increment -> tc = calculated
+    if (action.action == Action::Decrement && action.idToDelete.has_value()){
+        
+        return _actioner.ReduceCapacity(action.idToDelete.value());
+    }
+   
+    if (action.action == Action::Increment){
+        
+        return _actioner.IncreaseCapacity(action.targetCount);
+    }
+
+   // action == Mantain -> No se hizo nada
+   return nullopt; 
     
 }
+
+int Controller::CalculateMinimumSafeInstanceCount(int currentCount, double referenceCpu) const {
+    // utilizacion proyectada con N instancias = referenceCpu * currentCount / N
+    // (asume que la carga total se mantiene igual y se reparte parejo entre
+    // instancias -- el mismo supuesto de round robin ya aceptado para
+    // requests). Buscamos el N MINIMO dentro del rango permitido tal que esa
+    // utilizacion proyectada quede <= highThreshold -> es decir, minima cantidad de mv que satisfagan carga a suplir
+    for (int candidate = _minInstances; candidate <= _maxInstances; ++candidate) {
+        double projected = referenceCpu * currentCount / candidate;
+        if (projected <= _highThresholdCpu) {
+            return candidate;
+        }
+    }
+    // ni con el maximo permitido alcanza -- toca conformarse con el tope
+    return _maxInstances;
+}
+
+string Controller::FindLeastLoadedInstance(const unordered_map<string, double>& validatedCurrentCpu) const {
+    
+    // se asume no vacio -- quien llama ya lo verifico antes de invocar esto
+    auto it = std::min_element(validatedCurrentCpu.begin(), validatedCurrentCpu.end(),
+                                [](const auto& a, const auto& b) { return a.second < b.second; });
+    
+    return it->first;
+}
+
 
 
 // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds

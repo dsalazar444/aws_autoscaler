@@ -8,13 +8,20 @@
     "minInstances": 1,
     "maxInstances": 5,
 
-    "highThreshold": 70.0,
-    "lowThreshold": 30.0,
+    "highThresholdCpu": 70.0,
+    "lowThresholdCpu": 30.0,
+
+    "highThresholdReq": 1000,
+    "lowThresholdReq": 100,
     
-    "historyWindow": "30",
-    "horizonWindow": "9",
-    "sustainedHighWindow": "4" ,
-    "sustainedLowWindow": "6" ,
+    "historyWindow": "1800",
+    "horizonWindow": "540",
+
+    "sustainedHighWindowCpu": "240" ,
+    "sustainedLowWindowCpu": "360" ,
+
+    "sustainedHighWindowReq": "120" ,
+
     "queryPeriod": "60",
       
     "scaleOutCooldown": "CHANGE",
