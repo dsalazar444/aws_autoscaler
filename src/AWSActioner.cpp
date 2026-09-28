@@ -5,6 +5,8 @@
 #include <aws/autoscaling/model/SetDesiredCapacityRequest.h>
 #include <aws/autoscaling/model/TerminateInstanceInAutoScalingGroupRequest.h>
 
+// using namespace std;
+
 namespace {
 constexpr int MAX_RETRIES = 2;  // reintentos ADICIONALES tras el primer intento
 constexpr std::chrono::milliseconds RETRY_BACKOFF{200};
@@ -47,7 +49,6 @@ ActionResult AWSActioner::IncreaseCapacity(int targetCount) {
         // enviamos request a AWS, usando cliente ASG
         auto outcome = _autoScalingClient.SetDesiredCapacity(request);
         return outcome.IsSuccess() ? ActionResult::Success : ActionResult::Failed;
-        // TODO: registrar outcome.GetError() en el log de auditoria si falla
     });
 }
 

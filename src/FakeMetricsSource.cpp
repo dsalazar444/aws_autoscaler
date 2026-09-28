@@ -4,18 +4,17 @@
 #include <fstream>
 #include <string>
 
-using namespace std;
+//using namespace std;
 
-// TIPOS
-// 
-FakeMetricsSource::FakeMetricsSource(vector<string> instanceIds,
+
+FakeMetricsSource::FakeMetricsSource(std::vector<std::string> instanceIds,
                                     double baselineCpuPercent,
                                     double cpuStepStdDev,
                                     double cpuTrendPercentPerMinute,
                                     double baselineRequests,
                                     double requestStepStdDev,
-                                    chrono::seconds retentionWindow,
-                                    optional<filesystem::path> persistenceDirectory)
+                                    std::chrono::seconds retentionWindow,
+                                    std::optional<std::filesystem::path> persistenceDirectory)
     : _instanceIds(move(instanceIds)),
       _baselineCpuPercent(baselineCpuPercent),
       _cpuStepStdDev(cpuStepStdDev),
@@ -24,13 +23,13 @@ FakeMetricsSource::FakeMetricsSource(vector<string> instanceIds,
       _requestStepStdDev(requestStepStdDev),
       _retentionWindow(retentionWindow),
       _persistenceDirectory(move(persistenceDirectory)),
-      _startTime(chrono::system_clock::now()) {
+      _startTime(std::chrono::system_clock::now()) {
     // _cpuHistoryStore{}
 
     if (_persistenceDirectory.has_value()) {
         // si no se puede crear la carpeta, simplemente no se persiste nada 
-        error_code ignored; // var para recibir el error, sin lanzar excepción
-        filesystem::create_directories(*_persistenceDirectory, ignored);
+        std::error_code ignored; // var para recibir el error, sin lanzar excepción
+        std::filesystem::create_directories(*_persistenceDirectory, ignored);
     }
 }
 
@@ -42,7 +41,7 @@ bool FakeMetricsSource::ConsumeFailureFlag() {
     return shouldFail;
 }
 
-void FakeMetricsSource::EnsureCpuHistoryUpTo(const string& id, chrono::system_clock::time_point upTo) {
+void FakeMetricsSource::EnsureCpuHistoryUpTo(const std::string& id, std::chrono::system_clock::time_point upTo) {
 
     // en map y unordered_map, ...[clave], obtiene si existe, y si no, crea registro con esa clave
     // y valor por defecto (vacio) -> si no existe, será un metricseries vacio                             
@@ -53,17 +52,17 @@ void FakeMetricsSource::EnsureCpuHistoryUpTo(const string& id, chrono::system_cl
         // primer punto de esta instancia -- arranca en el baseline
         // pasamos timestap y value (que es restringido por clamp) 
         // esta MetricSample le hacemos push_back en values, o sea, en MetricSeries
-        series.push_back({_startTime, clamp(_baselineCpuPercent, 0.0, 100.0)});
+        series.push_back({_startTime, std::clamp(_baselineCpuPercent, 0.0, 100.0)});
     }
 
     // cuanto deberia moverse el "centro" del walk en cada paso por la
     // tendencia configurada, independiente del delta aleatorio
     // es la pendiente de las series de la CPU -> convierte tendencia por minuto, a tendencia 
     // por paso (que por default, paso es 60s, pero alguien lo puede cambiar)
-    double trendPerStep = _cpuTrendPercentPerMinute * (chrono::duration<double>(SAMPLE_STEP).count() / 60.0);
+    double trendPerStep = _cpuTrendPercentPerMinute * (std::chrono::duration<double>(SAMPLE_STEP).count() / 60.0);
 
     // delta (que es lo que sumamos en cada paso) tendrá desviacion configurada
-    normal_distribution<double> delta(0.0, _cpuStepStdDev);
+    std::normal_distribution<double> delta(0.0, _cpuStepStdDev);
 
     // extender el walk paso a paso hasta cubrir upTo. Cada paso depende del
     // ANTERIOR YA GUARDADO en `series` -}> un punto que ya existe nunca se
@@ -76,7 +75,7 @@ void FakeMetricsSource::EnsureCpuHistoryUpTo(const string& id, chrono::system_cl
         // .timestamp porque series es una MetricSeries -> vector (id, metricSample) y metricSample tiene
         // dos elementos, timestamp y value 
         auto nextTimestamp = series.back().timestamp + SAMPLE_STEP; // avanzamos paso
-        double nextValue = clamp(series.back().value + trendPerStep + delta(_rng), 0.0, 100.0); //generamos siguiente valor, a partir de anterior
+        double nextValue = std::clamp(series.back().value + trendPerStep + delta(_rng), 0.0, 100.0); //generamos siguiente valor, a partir de anterior
 
         // añadimos MetricSeries
         series.push_back({nextTimestamp, nextValue});
@@ -85,17 +84,17 @@ void FakeMetricsSource::EnsureCpuHistoryUpTo(const string& id, chrono::system_cl
     PruneAndPersist(id, series, upTo);
 }
 
-void FakeMetricsSource::EnsureRequestHistoryUpTo(chrono::system_clock::time_point upTo) {
+void FakeMetricsSource::EnsureRequestHistoryUpTo(std::chrono::system_clock::time_point upTo) {
     
     // primer dato -> uso baseline
     if (_requestHistoryStore.empty()) {
-        _requestHistoryStore.push_back({_startTime, max(0.0, _baselineRequests)});
+        _requestHistoryStore.push_back({_startTime, std::max(0.0, _baselineRequests)});
     }
 
-    normal_distribution<double> delta(0.0, _requestStepStdDev);
+    std::normal_distribution<double> delta(0.0, _requestStepStdDev);
     while (_requestHistoryStore.back().timestamp < upTo) {
         auto nextTimestamp = _requestHistoryStore.back().timestamp + SAMPLE_STEP; // añadimos siguente MetricSample, que sera en timestamp +60, con value x
-        double nextValue = max(0.0, _requestHistoryStore.back().value + delta(_rng));
+        double nextValue = std::max(0.0, _requestHistoryStore.back().value + delta(_rng));
 
         _requestHistoryStore.push_back({nextTimestamp, nextValue});
     }
@@ -103,7 +102,7 @@ void FakeMetricsSource::EnsureRequestHistoryUpTo(chrono::system_clock::time_poin
     PruneAndPersist("requests", _requestHistoryStore, upTo);
 }
 
-FetchResult<vector<string>> FakeMetricsSource::GetInstanceIds() {
+FetchResult<std::vector<std::string>> FakeMetricsSource::GetInstanceIds() {
 
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
@@ -112,14 +111,14 @@ FetchResult<vector<string>> FakeMetricsSource::GetInstanceIds() {
     return {FetchStatus::Ok, _instanceIds};
 }
 
-FetchResult<CurrentCpuSnapshot> FakeMetricsSource::GetCurrentCpus(const vector<string>& ids) {
+FetchResult<CurrentCpuSnapshot> FakeMetricsSource::GetCurrentCpus(const std::vector<std::string>& ids) {
     
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
     }
 
-    auto now = chrono::system_clock::now();
-    unordered_map<string, double> result;
+    auto now = std::chrono::system_clock::now();
+    std::unordered_map<std::string, double> result;
 
     for (const auto& id : ids) {
         EnsureCpuHistoryUpTo(id, now); //todos tendran mismo timestamp
@@ -130,13 +129,13 @@ FetchResult<CurrentCpuSnapshot> FakeMetricsSource::GetCurrentCpus(const vector<s
 }
 
 // history de ids
-FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(const vector<string>& ids, chrono::seconds window) {
+FetchResult<MetricSeriesByInstance> FakeMetricsSource::GetCpuHistory(const std::vector<std::string>& ids, std::chrono::seconds window) {
     
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
     }
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     MetricSeriesByInstance result;
 
     for (const auto& id : ids) {
@@ -161,19 +160,19 @@ FetchResult<double> FakeMetricsSource::GetCurrentRequest() {
         return {FetchStatus::ApiError, 0.0};
     }
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     EnsureRequestHistoryUpTo(now);
 
     return {FetchStatus::Ok, _requestHistoryStore.back().value};
 }
 
-FetchResult<MetricSeries> FakeMetricsSource::GetRequestHistory(chrono::seconds window) {
+FetchResult<MetricSeries> FakeMetricsSource::GetRequestHistory(std::chrono::seconds window) {
 
     if (ConsumeFailureFlag()) {
         return {FetchStatus::ApiError, {}};
     }
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     EnsureRequestHistoryUpTo(now);
 
     MetricSeries windowed;
@@ -187,22 +186,22 @@ FetchResult<MetricSeries> FakeMetricsSource::GetRequestHistory(chrono::seconds w
     return {FetchStatus::Ok, windowed};
 }
 
-void FakeMetricsSource::SetCpuOverride(const string& instanceId, double value) {
+void FakeMetricsSource::SetCpuOverride(const std::string& instanceId, double value) {
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     EnsureCpuHistoryUpTo(instanceId, now);  // asegura que exista al menos un punto que sobreescribir
 
-    _cpuHistoryStore[instanceId].back().value = clamp(value, 0.0, 100.0); //asignamos valor que pasamos, solo que nos aseguramos que este dentro de ranfo
+    _cpuHistoryStore[instanceId].back().value = std::clamp(value, 0.0, 100.0); //asignamos valor que pasamos, solo que nos aseguramos que este dentro de ranfo
     // el walk continua desde este valor forzado en el proximo paso -- es una
     // inyeccion real dentro de la serie, no un baseline pasivo aparte
 }
 
 void FakeMetricsSource::SetRequestOverride(double value) {
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     EnsureRequestHistoryUpTo(now);  // asegura que exista al menos un punto que sobreescribir
 
-    _requestHistoryStore.back().value = clamp(value, 0.0, 100.0); //asignamos valor que pasamos, solo que nos aseguramos que este dentro de ranfo
+    _requestHistoryStore.back().value = std::clamp(value, 0.0, 100.0); //asignamos valor que pasamos, solo que nos aseguramos que este dentro de ranfo
     // el walk continua desde este valor forzado en el proximo paso -- es una
     // inyeccion real dentro de la serie, no un baseline pasivo aparte
 }
@@ -214,12 +213,12 @@ void FakeMetricsSource::SetNextCallFails(bool shouldFail) {
 }
 
 // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds
-void FakeMetricsSource::SetInstanceIds(vector<string> newIds){
+void FakeMetricsSource::SetInstanceIds(std::vector<std::string> newIds){
     _instanceIds = move(newIds);
 }
 
 
-void FakeMetricsSource::PruneAndPersist(const string& seriesName, MetricSeries& series, chrono::system_clock::time_point now) {
+void FakeMetricsSource::PruneAndPersist(const std::string& seriesName, MetricSeries& series, std::chrono::system_clock::time_point now) {
     
     // seriesName podria ser id de instanca, para cpu, o 'requests' para requests
     if (series.empty()) {
@@ -234,7 +233,7 @@ void FakeMetricsSource::PruneAndPersist(const string& seriesName, MetricSeries& 
     // lower_bound retorna elemento que no sea menor al valor buscado -> tenemos que decirle, en nuestro tipo de datos, que es <
     auto firstToKeep = lower_bound(
         series.begin(), series.end(), cutoff,
-        [](const MetricSample& sample, chrono::system_clock::time_point t) { // hay que poner lambda porque no sabe comparar un metricSample con un time_point
+        [](const MetricSample& sample, std::chrono::system_clock::time_point t) { // hay que poner lambda porque no sabe comparar un metricSample con un time_point
             return sample.timestamp < t; // t sería cutoff
         });
 
@@ -248,13 +247,13 @@ void FakeMetricsSource::PruneAndPersist(const string& seriesName, MetricSeries& 
 
 }
 
-void FakeMetricsSource::PersistSamplesToPrune(const string& seriesName, MetricSeries::const_iterator first,
+void FakeMetricsSource::PersistSamplesToPrune(const std::string& seriesName, MetricSeries::const_iterator first,
                                             MetricSeries::const_iterator last) { //const porque no va a modificar elementos
 
     if (_persistenceDirectory.has_value()) {
         
         auto filePath = *_persistenceDirectory / (seriesName + ".csv");
-        ofstream file(filePath, ios::app);
+        std::ofstream file(filePath, std::ios::app);
 
         if (file) {
             // best-effort: si por algun motivo no se pudo abrir el archivo,
@@ -262,7 +261,7 @@ void FakeMetricsSource::PersistSamplesToPrune(const string& seriesName, MetricSe
             // detener la simulacion por un problema de disco
             for (auto it = first; it != last; ++it) {
                 auto epochSeconds =
-                    chrono::duration_cast<chrono::seconds>(it->timestamp.time_since_epoch())
+                    std::chrono::duration_cast<std::chrono::seconds>(it->timestamp.time_since_epoch())
                         .count();
                 file << epochSeconds << "," << it->value << "\n";
             }

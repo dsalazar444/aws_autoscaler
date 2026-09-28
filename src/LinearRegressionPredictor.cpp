@@ -1,13 +1,13 @@
 #include "LinearRegressionPredictor.h"
 #include <algorithm>
 
-using namespace std;
+//using namespace std;
 
 LinearRegressionPredictor::LinearRegressionPredictor(size_t minSamples)
     : _minSamples(minSamples) {}  
 
 // optional retorna datos con min 1 atributo, máx 2 -> bool has_value, y si sí, value
-optional<double> LinearRegressionPredictor::EstimateAt(
+std::optional<double> LinearRegressionPredictor::EstimateAt(
     const MetricSeries& knownSamples,
     std::chrono::system_clock::time_point targetTimestamp) {
 

@@ -10,8 +10,6 @@
 #include "DecidedAction.h"
 #include "AWSActioner.h"
 
-using namespace scaleAction; // de DecidedAction
-
 class Logger{
 public:
 
@@ -28,7 +26,7 @@ public:
 
         // Metrics and observation interval considered 
         std::string metricsConsidered = "CPU y Requests";
-        optional<std::chrono::seconds> analyzedWindow{0};  // el historyWindow configurado en Controller
+        std::optional<std::chrono::seconds> analyzedWindow{0};  // el historyWindow configurado en Controller
         
         // Existing state
         int instanceCountBefore = 0;
@@ -45,7 +43,7 @@ public:
 
         
         // Decided action
-        Action decision = Action::Mantain;
+        scaleAction::Action decision = scaleAction::Action::Mantain;
         std::string justification;
     
         // result of said action
@@ -60,6 +58,6 @@ private:
     std::filesystem::path _filePath; // /logs/log.json
 //TODO: Revisar los destructores en todos -> en Interfaces son ~I() = Default, no sé sin I como será
 
-    void Logger::LogTerminal(const DecisionRecord& decisionRecord);
-    void Logger::LogJSON(const DecisionRecord& decisionRecord);
+    void LogTerminal(const DecisionRecord& decisionRecord);
+    void LogJSON(const DecisionRecord& decisionRecord);
 };

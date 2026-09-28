@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,12 +30,10 @@ public:
 
     //  No se le pasa nada, atributos se leen de archivo config.json
     Controller(std::string configFile);
-    
 
     // Ciclo completo
     // now ->  para tener instante en que se ejecuta ciclo, y mantenerlo
-    // lastAction -> porque cooldown depende de qué se hizo anteriormente
-    void Controller::LifeCycle(std::chrono::system_clock::time_point now);
+    void LifeCycle(std::chrono::system_clock::time_point now);
 
 private:
     nlohmann::json _config;
@@ -84,8 +83,9 @@ private:
     AWSActioner _actioner;
     Logger _logger;
     
-    // TODO: Ponerlas publicas o privadas? 
-    nlohmann::json LoadConfig(const string& configFile);
+    //  Funciones
+
+    nlohmann::json LoadConfig(const std::string& configFile);
 
     bool GetInstanceIds();
     
@@ -98,11 +98,11 @@ private:
                 std::optional<ReactiveSignal> reactiveSignalCpu, std::optional<ReactiveSignal> reactiveSignalReq,
                 std::optional<ProactiveSignal> proactiveSignal,
                 std::optional<double> proactiveEstimatedCpu, int targetCount,
-                std::optional<std::string> idToDelete, Action decision, 
+                std::optional<std::string> idToDelete, scaleAction::Action decision, 
                 std::optional<ActionResult> actionResult);
 
     void EvaluateAndDecide(const MetricSeries& globalCpusHistory,
-                ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+                ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
                 const MetricSeries& historyRequest,
                 std::chrono::system_clock::time_point now,
                 std::optional<double> currentGlobalCpu,
@@ -123,7 +123,6 @@ private:
     
     std::string FindLeastLoadedInstance(const std::unordered_map<std::string, double>& validatedCurrentCpu) const;
 
-    // Útil porque despues de añadir o quitar instancias, se debe actulizar el _instanceIds
     void SetInstanceIds(std::vector<std::string> newIds);
 
 };

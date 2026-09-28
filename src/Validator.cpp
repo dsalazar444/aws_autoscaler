@@ -2,25 +2,25 @@
 
 #include <algorithm>
 
-using namespace std;
+//using namespace std;
 
 namespace ValidatorUtils {
 
 // Tolerancia para considerar que un timestamp REAL "coincide" con uno
 // ESPERADO del grid -- por pequeños desfases de publicacion de CloudWatch
 // (el mismo tipo de retraso que ya vimos en GetCurrentCpu).
-constexpr chrono::seconds TIMESTAMP_TOLERANCE{15};
+constexpr std::chrono::seconds TIMESTAMP_TOLERANCE{15};
 
 // Genera la lista de instantes "esperados" dentro de la ventana, espaciados
 // por `period` (ejm: 60s) -- el grid que CloudWatch deberia haber llenado si no hubiera
 // huecos. Sirve como referencia para saber QUE puntos faltan, no para
 // inventar datos por si solo.
-vector<chrono::system_clock::time_point> BuildExpectedTimestamps(
-    chrono::system_clock::time_point now, // finish time
-    chrono::seconds window,
-    chrono::seconds period) {
+std::vector<std::chrono::system_clock::time_point> BuildExpectedTimestamps(
+    std::chrono::system_clock::time_point now, // finish time
+    std::chrono::seconds window,
+    std::chrono::seconds period) {
 
-    vector<chrono::system_clock::time_point> expected;
+    std::vector<std::chrono::system_clock::time_point> expected;
 
     for (auto t = now - window; t <= now; t += period) { // 15:00 - 5 min = 14:55 -> 14:55 <= 15:00, t= 14:55 + 1:00 m = 14:56
         // inicio desde ventana (inicio) -> voy avanzando de minuto en minuto, hasta llegar a now (tiempo "final")
@@ -32,7 +32,7 @@ vector<chrono::system_clock::time_point> BuildExpectedTimestamps(
 
 // ¿la serie ya tiene un punto real cerca de `target` (dentro de la
 // tolerancia)? Si es asi, no hay hueco que rellenar en ese instante.
-bool HasSampleNear(const MetricSeries& series, chrono::system_clock::time_point target) {
+bool HasSampleNear(const MetricSeries& series, std::chrono::system_clock::time_point target) {
     for (const auto& sample : series) {
         // para cada MetricSample, miramos si es mayor o menor, y operamos segun caso para obtener distancia entre
         // cada sample, y target
@@ -47,15 +47,15 @@ bool HasSampleNear(const MetricSeries& series, chrono::system_clock::time_point 
 
 }  // namespace
 
-Validator::Validator(shared_ptr<IValuePredictor> predictor, double completenessThreshold)
+Validator::Validator(std::shared_ptr<IValuePredictor> predictor, double completenessThreshold)
     : _predictor(move(predictor)), _completenessThreshold(completenessThreshold) {}
 
 
-ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus( // timestamp especifico
-    const vector<string>& ids,
-    const unordered_map<string, double>& rawCurrentCpu,
+ValidationResult<std::unordered_map<std::string, double>> Validator::ValidateCurrentCpus( // timestamp especifico
+    const std::vector<std::string>& ids,
+    const std::unordered_map<std::string, double>& rawCurrentCpu,
     const MetricSeriesByInstance& cpuHistory,
-    chrono::system_clock::time_point targetTimestamp) {
+    std::chrono::system_clock::time_point targetTimestamp) {
 
     // --- Paso 1: medir que tan completo llego el dato ---
     // `ids` es la lista de instancias que ESPERABAMOS ver. `rawCurrentCpu` es lo
@@ -88,7 +88,7 @@ ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus( 
  
     // --- Paso 4: faltan ALGUNAS instancias (menos que el umbral) -> rellenar ---
     // Partimos de una copia de lo que si llego, y por ende tiene value, y solo tocamos las que faltan.
-    unordered_map<string, double> filled = rawCurrentCpu;
+    std::unordered_map<std::string, double> filled = rawCurrentCpu;
 
     for (const auto& id : ids) {
         if (filled.count(id)) { // count busca idm si existe retorna 1, si no, 0
@@ -125,9 +125,9 @@ ValidationResult<unordered_map<string, double>> Validator::ValidateCurrentCpus( 
 
 ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
     const MetricSeries& rawRequestHistory,
-    chrono::system_clock::time_point now,
-    chrono::seconds window,
-    chrono::seconds period) {
+    std::chrono::system_clock::time_point now,
+    std::chrono::seconds window,
+    std::chrono::seconds period) {
 
     // --- Paso 1: el grid de instantes que "deberiamos" tener ---
     auto expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, window, period);
@@ -190,11 +190,11 @@ ValidationResult<MetricSeries> Validator::ValidateRequestHistory(
 
 
 ValidationResult<MetricSeriesByInstance> Validator::ValidateCpuHistory(
-    const vector<string>& ids,
+    const std::vector<std::string>& ids,
     const MetricSeriesByInstance& rawCpuHistory,
-    chrono::system_clock::time_point now,
-    chrono::seconds window,
-    chrono::seconds period) {
+    std::chrono::system_clock::time_point now,
+    std::chrono::seconds window,
+    std::chrono::seconds period) {
 
     // --- Paso 1: el grid de instantes que "deberiamos" tener por instancia ---
     auto expectedTimestamps = ValidatorUtils::BuildExpectedTimestamps(now, window, period);

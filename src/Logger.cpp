@@ -7,19 +7,20 @@
 #include <iomanip>
 
 using json = nlohmann::json;
-using namespace std;
+//using namespace std;
+//using namespace scaleAction;
 
 // Conversion a texto de los enums de DecisionRecord -- compartida entre
 // cualquier logger concreto (JSONL, consola, lo que venga despues) para no
 // duplicar el mapeo enum->string en cada uno.
 namespace {
-    std::string ToString(Action action) {
+    std::string ToString(scaleAction::Action action) {
         switch (action) {
-            case Action::Mantain:
+            case scaleAction::Action::Mantain:
                 return "MAINTAIN_CAPACITY";
-            case Action::Increment:
+            case scaleAction::Action::Increment:
                 return "INCREASE_CAPACITY";
-            case Action::Decrement:
+            case scaleAction::Action::Decrement:
                 return "REDUCE_CAPACITY";
         }
         return "UNKNOWN";  // defensivo -- no deberia alcanzarse
@@ -114,12 +115,11 @@ namespace {
     }
 }
 
-// TODO: Revisar si usar, cuando haya namespace, std, porque pueden haber ambiguedades
 Logger::Logger(std::filesystem::path filePath): _filePath(std::move(filePath)) {
     // aseguramos que la carpeta contenedora exista -- best-effort, igual que
     // en FakeMetricsSource
-    error_code ignored;
-    filesystem::create_directories(_filePath.parent_path(), ignored);
+    std::error_code ignored;
+    std::filesystem::create_directories(_filePath.parent_path(), ignored);
 };
 
 void Logger::Log(const DecisionRecord& decisionRecord){
@@ -131,25 +131,25 @@ void Logger::LogTerminal(const DecisionRecord& record){
 
     auto time = std::chrono::system_clock::to_time_t(record.timestamp);
 
-    cout << "[" << FormatTimestamp(record.timestamp) << "] "
+    std::cout << "[" << FormatTimestamp(record.timestamp) << "] "
          << "actualInstances=" << record.instanceCountBefore << " "
-         << "decisionMade=" << ToString(record.decision) << endl;
+         << "decisionMade=" << ToString(record.decision) << std::endl;
     
-    cout << "Actual metrics used to make decision: \n" 
+    std::cout << "Actual metrics used to make decision: \n" 
          << "globalCpu=" <<  optionalToJson(record.currentGlobalCpu) << "%\n"
          << "globalRequest= " << optionalToJson(record.currentGlobalReq);
 
-    cout << "Modules signals: \n" 
+    std::cout << "Modules signals: \n" 
          << "reactiveSignalCpu: " << ToString(record.reactiveSignalCpu) << ",\n"
          << "reactiveSignalReq: " << ToString(record.reactiveSignalReq) << ",\n"
          << "proactiveSignal:" << ToString(record.proactiveSignal) << ",\n"
          << "proactiveEstimatedCpu:" << optionalToJson(record.proactiveEstimatedCpu) << ",\n"
          << "targetCount:" << record.targetCount << ",\n"
-         << "instanceToDelete:" << optionalToJson(record.idToDelete) << endl;
+         << "instanceToDelete:" << optionalToJson(record.idToDelete) << std::endl;
 
 
-    cout << "decisionJustificaciton: " << record.justification << endl;
-    cout << "actionResult=" << optionalToJson(record.actionResult);
+    std::cout << "decisionJustificaciton: " << record.justification << std::endl;
+    std::cout << "actionResult=" << optionalToJson(record.actionResult);
 
     std::cout << " -- " << record.justification << "\n";
 }

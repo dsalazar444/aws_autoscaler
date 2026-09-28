@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-using namespace std;
+//using namespace std;
 
 namespace {
 
@@ -13,7 +13,7 @@ enum class SustainedCheckResult { Sustained, NotSustained, InsufficientData };
 // Tolerancia pequeña al medir si el historico "cubre" el inicio de la
 // ventana -- para no ser demasiado estrictos por un desfase de pocos
 // segundos entre buckets de muestreo.
-constexpr chrono::seconds COVERAGE_TOLERANCE{15};
+constexpr std::chrono::seconds COVERAGE_TOLERANCE{15};
 
 // Revisa si TODOS los puntos dentro de [now - window, now] cumplen la
 // condicion (por encima o por debajo de threshold, segun checkAbove).
@@ -24,8 +24,8 @@ constexpr chrono::seconds COVERAGE_TOLERANCE{15};
 // fiel a lo que "sostenido" deberia significar.
 // Data se saca de info de objeto
 SustainedCheckResult CheckSustained(const MetricSeries& history,
-                                    chrono::system_clock::time_point now,
-                                    chrono::seconds window,
+                                    std::chrono::system_clock::time_point now,
+                                    std::chrono::seconds window,
                                     double threshold,
                                     bool checkAbove) {
     // windowStart es el timestamp en el que empieza la ventana (ejm: window = 5 min, y now = 10:15, windowStart = 10:10)

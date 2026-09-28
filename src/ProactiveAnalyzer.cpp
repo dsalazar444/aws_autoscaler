@@ -1,13 +1,14 @@
 #include "ProactiveAnalyzer.h"
 
-using namespace std;
-ProactiveAnalyzer::ProactiveAnalyzer(shared_ptr<IValuePredictor> predictor,
-                                      chrono::seconds horizon,
+//using namespace std;
+
+ProactiveAnalyzer::ProactiveAnalyzer(std::shared_ptr<IValuePredictor> predictor,
+                                      std::chrono::seconds horizon,
                                       double highThreshold)
     : _predictor(move(predictor)), _horizon(horizon), _highThreshold(highThreshold) {}
 
 ProactiveEvaluation ProactiveAnalyzer::Evaluate(const MetricSeries& globalCpuHistory, 
-                                            chrono::system_clock::time_point now) {
+                                            std::chrono::system_clock::time_point now) {
     // --- Paso 1: pedirle al motor matematico un estimado en "ahora + horizonte" ---
     auto targetTimestamp = now + _horizon;
     auto estimated = _predictor->EstimateAt(globalCpuHistory, targetTimestamp);

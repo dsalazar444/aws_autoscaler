@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <thread>
 
-using namespace std;
+//using namespace std;
 
 //namespace anónimo -> Su propósito en este caso es hacer que QueryIdForIndex sea privada de este archivo .cpp.
 // Lo declarado dentro de namespace son cosas que NO pertenecen a la clase, sino al .cpp, entonces, 
@@ -16,7 +16,7 @@ using namespace std;
 namespace {
     // en namspc y no en .h porque -> ocultar detalles de implementación que otros componentes no necesitan conocer.
     constexpr int MAX_RETRIES = 2;  // reintentos ADICIONALES tras el primer intento (3 llamadas en total)
-    constexpr chrono::milliseconds RETRY_BACKOFF{200}; // tiempo que esperamos entre reintentos
+    constexpr std::chrono::milliseconds RETRY_BACKOFF{200}; // tiempo que esperamos entre reintentos
 
     // Reintenta `attempt` hasta MAX_RETRIES veces si no llega Ok. Encapsula la
     // politica de reintentos en un solo lugar -- Controller nunca ve intentos
@@ -52,21 +52,21 @@ namespace {
     // El Id de cada MetricDataQuery debe empezar con minuscula y ser alfanumerico --
     // no podemos usar el instance id tal cual (tiene guiones), asi que mapeamos por indice.
     //size_t porque será positivo
-    string QueryIdForIndex(size_t index) {
-        return "id" + to_string(index);
+    std::string QueryIdForIndex(size_t index) {
+        return "id" + std::to_string(index);
     }
 } 
 
 // con move decimos: Construye _nombre usando los recursos que actualmente tiene nombre, en vez de hacer una copia.
 // implementamos constructor, recibe 2 param, y los "transfiere" a los atributos del objeto.
-AWSMetricsSource::AWSMetricsSource(string asgName, string targetGroupArn):
+AWSMetricsSource::AWSMetricsSource(std::string asgName, std::string targetGroupArn):
     _asgName(move(asgName)), _targetGroupArn(move(targetGroupArn)) {}
     
 
-FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
+FetchResult<std::vector<std::string>> AWSMetricsSource::GetInstanceIds() {
      // lambda => [capturas](parámetros) -> tipo_de_retorno { ..cuerpo.. }
     // [this] -> "quiero que este lambda pueda acceder al this del objeto actual". POr eso podemos usar param de clase.
-    return RetryOnFailure([this]() -> FetchResult<vector<string>> { 
+    return RetryOnFailure([this]() -> FetchResult<std::vector<std::string>> { 
 
         // creamos objeto para realizar petición a AWS para describe..., y luego le añadimos nombre 
         // a request, de asg
@@ -78,20 +78,14 @@ FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
         // DescribeAutoScalingGroups manda la solucitid/request
         auto outcome = _autoScalingClient.DescribeAutoScalingGroups(request);      
         if (!outcome.IsSuccess()) {
-            // TODO: registrar outcome.GetError() en el log de auditoria del ciclo
-            // cerr << "Error with AutoScaling::DescribeAutoScalingGroups. "
-            //     << outcome.GetError().GetMessage()
-            //     << endl;
             return {FetchStatus::ApiError, {}}; 
         }
 
-        vector<string> ids;
+        std::vector<std::string> ids;
         // obtenemos vector con groups solicitados -> como pasamos name, solo retornará vector con 1 elemento 
         // retorna vector porque el parámetro acepta varios nombres, no solo uno
         const auto& groups = outcome.GetResult().GetAutoScalingGroups();
         if (groups.empty()) {
-            // TODO: registrar que groups de asg es vacio en el log de auditoria del ciclo
-            // el ASG no aparece en la respuesta -- exitosa, pero vacia de verdad
             return {FetchStatus::Ok, ids};
         }
         
@@ -110,7 +104,7 @@ FetchResult<vector<string>> AWSMetricsSource::GetInstanceIds() {
 
 // Hay que decir IMetricsSource pq ya no está dentro de scope, en el .h sí Dentro de la definición de la clase derivada, C++ permite 
 // acceder a tipos heredados directamente, pero en el .cpp ya no.
-FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector<string>& ids, chrono::seconds window) {
+FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const std::vector<std::string>& ids, std::chrono::seconds window) {
     
     return RetryOnFailure([this, &ids, window]() -> FetchResult<MetricSeriesByInstance> { 
     
@@ -122,7 +116,7 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
         
         Aws::CloudWatch::Model::GetMetricDataRequest request; // obtenemos objeto tipo request
     
-        auto now = chrono::system_clock::now(); 
+        auto now = std::chrono::system_clock::now(); 
         request.SetStartTime(Aws::Utils::DateTime(now - window)); // window porque será history
         request.SetEndTime(Aws::Utils::DateTime(now));
         // el default de CloudWatch es TimestampDescending (mas nuevo primero) --
@@ -160,7 +154,6 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
         auto outcome = _cloudWatchClient.GetMetricData(request);
     
         if (!outcome.IsSuccess()) {
-            // TODO: registrar outcome.GetError();
             return {FetchStatus::ApiError, {}};
         }
         
@@ -173,7 +166,7 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
             // codificado en el Id ("id3" -> indice 3)  -> con substr quitamos dos primeros chars
             // stoul() convierte una cadena de texto en un número entero largo sin signo
             size_t index = stoul(metricResult.GetId().substr(2));
-            const string& instanceId = ids[index];
+            const std::string& instanceId = ids[index];
         
             // vector con cpus de una instancia con timestamps
             MetricSeries series;
@@ -202,7 +195,7 @@ FetchResult<MetricSeriesByInstance> AWSMetricsSource::GetCpuHistory(const vector
 }
 
 FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
-    const vector<string>& ids) {
+    const std::vector<std::string>& ids) {
 
     auto history = GetCpuHistory(ids, CURRENT_WINDOW); //ya acá hicimos el retry, por eso no se pone en esta func
     //history es de tipo fetchresult -> tiene fetchstatus y value
@@ -222,7 +215,7 @@ FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
     // no usamos unordered_map pq tipo es time_point, y no hay funcion hash que nos den para es tipo
     // debemos de crearla nosotros -> y como los timep_point tienen un orden >, podemos usar map, que
     // no necesita hash
-    map<chrono::system_clock::time_point, int> votes;
+    std::map<std::chrono::system_clock::time_point, int> votes;
     for (const auto& [id, series] : history.value) {
         if (!series.empty()) {
             // sumamos 1 en el timestamp que propone (o sea, vamos contando cantidad de últimos timestamp)
@@ -231,7 +224,7 @@ FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
     }
 
     //obtenemos timestamp media 
-    chrono::system_clock::time_point targetTimestamp{};
+    std::chrono::system_clock::time_point targetTimestamp{};
     int bestVotes = 0;
     for (const auto& [timestamp, count] : votes) {
         // actualizamos target y bestvotes si count tiene mas cant que bestvotes, o tienen misma pero con un timestamp mayor
@@ -242,7 +235,7 @@ FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
     }
 
     //current es mapa instanceId -> cpu
-    unordered_map<string, double> current;
+    std::unordered_map<std::string, double> current;
     for (const auto& [id, series] : history.value) {
         // [idA, [10:11, 10:12...]]
 
@@ -269,7 +262,7 @@ FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
     return {FetchStatus::Ok, CurrentCpuSnapshot{targetTimestamp, current}};
 }
 
-FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds window) {
+FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(std::chrono::seconds window) {
 
     return RetryOnFailure([this, window]() -> FetchResult<MetricSeries> {
 
@@ -294,7 +287,7 @@ FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(chrono::seconds wi
     // Creamos request con query, y con los tiempos start y end
     Aws::CloudWatch::Model::GetMetricDataRequest request;
 
-    auto now = chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
     request.SetStartTime(Aws::Utils::DateTime(now - window));
     request.SetEndTime(Aws::Utils::DateTime(now));
     request.SetScanBy(Aws::CloudWatch::Model::ScanBy::TimestampAscending);

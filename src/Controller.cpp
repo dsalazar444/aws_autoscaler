@@ -98,7 +98,7 @@ Controller::Controller(string configFile)
     // porque sí o sí, los ids se toman de AWS, no se simulan -> No usaremos GetInstanceId de FakeMetrics
 }
 
-json LoadConfig(const string& configFile) {
+json Controller::LoadConfig(const std::string& configFile) {
     
     ifstream f(configFile); // crea objeto que abre archivo
 
@@ -180,7 +180,7 @@ void Controller::BuildAndSendRecord(std::chrono::system_clock::time_point now, o
                 std::optional<ReactiveSignal> reactiveSignalCpu, std::optional<ReactiveSignal> reactiveSignalReq,
                 std::optional<ProactiveSignal> proactiveSignal,
                 std::optional<double> proactiveEstimatedCpu, int targetCount,
-                std::optional<std::string> idToDelete, Action decision, 
+                std::optional<std::string> idToDelete, scaleAction::Action decision, 
                 std::optional<ActionResult> actionResult) {
 
     Logger::DecisionRecord record;
@@ -357,10 +357,10 @@ void Controller::LifeCycle(std::chrono::system_clock::time_point now){
 
 
 void Controller::EvaluateAndDecide(const MetricSeries& globalCpusHistory,
-                ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+                ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
                 const MetricSeries& historyRequest,
                 std::chrono::system_clock::time_point now,
-                optional<double> currentGlobalCpu,
+                std::optional<double> currentGlobalCpu,
                 FetchResult<double> currentRequest,
                 int totalActualInstances){
     
@@ -384,11 +384,11 @@ void Controller::EvaluateAndDecide(const MetricSeries& globalCpusHistory,
 
 }
 
-DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion, 
+scaleAction::DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion, 
             const ReactiveSignal reactiveOpinionCpu,
             const ReactiveSignal reactiveOpinionReq, 
-            optional<double> currentGlobalCpu,
-            ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
+            std::optional<double> currentGlobalCpu,
+            ValidationResult<std::unordered_map<std::string, double>> validatedCurrentCpu,
             int totalActualInstances){
     
 
@@ -399,7 +399,7 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
         // es más grande (horizonte). Y tampoco lo que diga reactiveRequest, pues está solo es decisiva
         // si reactiveCpu es Normal
     
-        return {Action::Mantain, totalActualInstances, nullopt, "Reactivo no tiene suficiente ventana cubierta todavia para decidir estado sostenido"};
+        return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Reactivo no tiene suficiente ventana cubierta todavia para decidir estado sostenido"};
     }
     
     // --- Paso 8: SCALE-OUT -- OR entre Reactivo y Proactivo ---
@@ -439,10 +439,10 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
             // actual ya alcanza (o ya estamos en el tope permitido) -- no
             // hay una accion real que tomar
 
-            return {Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-out detectada, pero la capacidad actual ya es suficiente o esta en el tope"};
+            return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-out detectada, pero la capacidad actual ya es suficiente o esta en el tope"};
         }
 
-        return {Action::Increment, targetCountInstances, nullopt, "Se cumplió condición para aumentar instancias"};     
+        return {scaleAction::Action::Increment, targetCountInstances, nullopt, "Se cumplió condición para aumentar instancias"};     
     
     };
 
@@ -456,7 +456,7 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
         // < solo por salvaguarda, pero actual no deberia ser menor a minInstances
         if (totalActualInstances <= _minInstances) {
 
-            return {Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-in detectada, pero ya se esta en el minimo de instancias permitido"};
+            return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Condicion de scale-in detectada, pero ya se esta en el minimo de instancias permitido"};
         }
 
         // chequeo fino de seguridad: ¿sigue siendo seguro con UNA instancia
@@ -473,7 +473,7 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
         // Si cpu del sistema, al quitarle una instancia, es mayor a highThershold, no tiene sentido quitarla 
         if (projectedAtNMinusOne > _highThresholdCpu) {
     
-            return {Action::Mantain, totalActualInstances, nullopt, "Scale-in vetado: reducir una instancia proyectaria superar el umbral alto, es decir, capacidad resultante no podría soportar carga"};
+            return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Scale-in vetado: reducir una instancia proyectaria superar el umbral alto, es decir, capacidad resultante no podría soportar carga"};
         }
 
         // Obtener instancia con menor cpu a eliminar
@@ -484,32 +484,32 @@ DecidedAction Controller::Decide(const ProactiveEvaluation proactiveOpinion,
             // confiable para elegir CUAL instancia remover -- mas vale no
             // reducir a ciegas que reducir la equivocada
 
-            return {Action::Mantain, totalActualInstances, nullopt, "Scale-in seria seguro segun la formula, pero no hay dato confiable para elegir que instancia remover"};
+            return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Scale-in seria seguro segun la formula, pero no hay dato confiable para elegir que instancia remover"};
         }
 
 
         string instanceToRemove = FindLeastLoadedInstance(validatedCurrentCpu.value);
 
-        return {Action::Decrement, totalActualInstances - 1, instanceToRemove,"Se cumplió condición para disminuir instancias" };
+        return {scaleAction::Action::Decrement, totalActualInstances - 1, instanceToRemove,"Se cumplió condición para disminuir instancias" };
     }
 
     // --- Paso 10: ninguna condicion sostenida se cumplio ---
-    return {Action::Mantain, totalActualInstances, nullopt, "Ninguna condición de escalado se cumplió, se mantiene la capacidad actual"};     
+    return {scaleAction::Action::Mantain, totalActualInstances, nullopt, "Ninguna condición de escalado se cumplió, se mantiene la capacidad actual"};     
 }
 
-optional<ActionResult> Controller::Act(DecidedAction action){
+std::optional<ActionResult> Controller::Act(DecidedAction action){
 
     // IdToDelete puede ser opcional, pro eso el has_value, porque solo se agrega si accion es decrement
     // De resto, tanto name como TargetCount son obligatorios, siendo
     // Si mantain -> tc = Actual
     // si Reduce -> tc = actual -1
     // si Increment -> tc = calculated
-    if (action.action == Action::Decrement && action.idToDelete.has_value()){
+    if (action.action == scaleAction::Action::Decrement && action.idToDelete.has_value()){
         
         return _actioner.ReduceCapacity(action.idToDelete.value());
     }
    
-    if (action.action == Action::Increment){
+    if (action.action == scaleAction::Action::Increment){
         
         return _actioner.IncreaseCapacity(action.targetCount);
     }
@@ -535,7 +535,7 @@ int Controller::CalculateMinimumSafeInstanceCount(int currentCount, double refer
     return _maxInstances;
 }
 
-string Controller::FindLeastLoadedInstance(const unordered_map<string, double>& validatedCurrentCpu) const {
+std::string Controller::FindLeastLoadedInstance(const std::unordered_map<std::string, double>& validatedCurrentCpu) const {
     
     // se asume no vacio -- quien llama ya lo verifico antes de invocar esto
     auto it = std::min_element(validatedCurrentCpu.begin(), validatedCurrentCpu.end(),

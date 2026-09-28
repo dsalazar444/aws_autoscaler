@@ -3,11 +3,11 @@
 #include <algorithm>
 #include <cmath>
 
-using namespace std;
+//using namespace std;
 
 namespace Analytics {
 
-double CalculatePercentile(vector<double> values, double percentile) {
+double CalculatePercentile(std::vector<double> values, double percentile) {
     // ordenamos una COPIA -- no queremos modificar la lista del caller
     sort(values.begin(), values.end());
 
@@ -26,12 +26,12 @@ double CalculatePercentile(vector<double> values, double percentile) {
     // forma estándar de calcular qué valor en un conjunto de datos corresponde a un percentil específico
     // redondeamos hacia arriba con ceil
 
-    rank = clamp<size_t>(rank, 1, n); // garantiza que valor si este entre 1 y n, <1 se convierte a minimo, y >n se convierte a n
+    rank = std::clamp<size_t>(rank, 1, n); // garantiza que valor si este entre 1 y n, <1 se convierte a minimo, y >n se convierte a n
 
     return values[rank - 1];  // -1 porque el vector es 0-indexado
 }
 
-double CalculateP95(const vector<double>& values) {
+double CalculateP95(const std::vector<double>& values) {
     return CalculatePercentile(values, 95.0);
 }
 
@@ -39,15 +39,15 @@ double CalculateP95(const vector<double>& values) {
 // solo metricseries (~byinstance) porque es un valor por timestamp  del sistema
 MetricSeries CalculateGlobalCpuSeries(
     const MetricSeriesByInstance& perInstanceHistory,
-    const vector<chrono::system_clock::time_point>& expectedTimestamps,
-    chrono::seconds timestampTolerance) {
+    const std::vector<std::chrono::system_clock::time_point>& expectedTimestamps,
+    std::chrono::seconds timestampTolerance) {
 
     MetricSeries globalSeries;
 
     for (const auto& bucketTimestamp : expectedTimestamps) {
 
         // --- recolectar el valor de CADA instancia en este bucket (timestamp) si se "parece" a expectedTimestamp---
-        vector<double> valuesAtBucket;
+        std::vector<double> valuesAtBucket;
 
         for (const auto& [id, series] : perInstanceHistory) {
             // series es un vector de MetricSample

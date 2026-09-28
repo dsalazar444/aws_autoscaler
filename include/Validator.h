@@ -106,9 +106,9 @@ public:
     // Mismo que ValidatCPUHistory, pero para request -> retorna validationResult con vector de metricsSamples relleno
     ValidationResult<MetricSeries> ValidateRequestHistory(
         const MetricSeries& rawRequestHistory,
-        chrono::system_clock::time_point now,
-        chrono::seconds window,
-        chrono::seconds period);
+        std::chrono::system_clock::time_point now,
+        std::chrono::seconds window,
+        std::chrono::seconds period);
 
 private:
     std::shared_ptr<IValuePredictor> _predictor;
