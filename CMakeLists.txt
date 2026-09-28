@@ -28,6 +28,10 @@ add_executable(aws-autoscaler
     src/Validator.cpp
 )
 
+target_include_directories(aws-autoscaler
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 target_link_libraries(aws-autoscaler
     PRIVATE
         ${AWSSDK_LIBRARIES}

@@ -108,6 +108,7 @@ json Controller::LoadConfig(const std::string& configFile) {
 
     // con parse leemos archivo, y trae su contenido json
     json configData = json::parse(f);
+    return configData;
 }
 
 

@@ -41,7 +41,7 @@ namespace {
                 return result;
             }
             if (tries < MAX_RETRIES) {
-                this_thread::sleep_for(RETRY_BACKOFF * (tries + 1)); // porque si error en temp en aws, esperamos un poco 
+                std::this_thread::sleep_for(RETRY_BACKOFF * (tries + 1)); // porque si error en temp en aws, esperamos un poco 
                 //antes de reintentar
             }
         }
@@ -265,59 +265,58 @@ FetchResult<CurrentCpuSnapshot> AWSMetricsSource::GetCurrentCpus(
 FetchResult<MetricSeries> AWSMetricsSource::GetRequestHistory(std::chrono::seconds window) {
 
     return RetryOnFailure([this, window]() -> FetchResult<MetricSeries> {
+        // Generamos metrica con sus datos y sobre quién la ejecitaremos
+        Aws::CloudWatch::Model::Metric metric;
+        metric.SetNamespace("AWS/ApplicationELB");
+        metric.SetMetricName("RequestCountPerTarget");
+        metric.AddDimensions(Aws::CloudWatch::Model::Dimension().WithName("TargetGroup").WithValue(_targetGroupArn));
+ 
+        // Describe cómo quieres consultar/agrupar esa métrica.
+        Aws::CloudWatch::Model::MetricStat stat;
+        stat.SetMetric(metric);
+        stat.SetPeriod(QUERY_PERIOD_SECONDS);
+        stat.SetStat("Average");
+    
+        // Creamos query con id de query request poruqe es la unica query que habrá
+        Aws::CloudWatch::Model::MetricDataQuery query;
+        query.SetId("requests");
+        query.SetMetricStat(stat);
+ 
+        // Creamos request con query, y con los tiempos start y end
+        Aws::CloudWatch::Model::GetMetricDataRequest request;
 
+        auto now = std::chrono::system_clock::now();
+        request.SetStartTime(Aws::Utils::DateTime(now - window));
+        request.SetEndTime(Aws::Utils::DateTime(now));
+        request.SetScanBy(Aws::CloudWatch::Model::ScanBy::TimestampAscending);
+        request.AddMetricDataQueries(query);
+ 
+
+        MetricSeries series;
+        auto outcome = _cloudWatchClient.GetMetricData(request);
+        if (!outcome.IsSuccess()){
+            return {FetchStatus::ApiError, {}};
+        }
+    
+        if (outcome.GetResult().GetMetricDataResults().empty()) {
+            return {FetchStatus::Ok, {}};  // llamada exitosa, simplemente sin datos en la ventana
+        }
+
+        // metricResult contiene varios timestamp y values, pero solo un único "id", porque 
+        // RequestCountPerTarget da promedio -> acá hay n timestamps, y cada uno trae el value promedio de todas
+        // las instancias
+        const auto& metricResult = outcome.GetResult().GetMetricDataResults().front();
+        const auto& timestamps = metricResult.GetTimestamps();
+        const auto& values = metricResult.GetValues();
+
+        for (size_t j = 0; j < timestamps.size(); ++j) {
+            // timestamps son de tipo aws::utils::datetime -> obtenemos el timestamp interno que contienen
+            // para que coincida con tipos en metricsample, que es lo que pusheamos a series
+            series.push_back({timestamps[j].UnderlyingTimestamp(), values[j]});
+        }
+    
+        return {FetchStatus::Ok, series};
     });
-    // Generamos metrica con sus datos y sobre quién la ejecitaremos
-    Aws::CloudWatch::Model::Metric metric;
-    metric.SetNamespace("AWS/ApplicationELB");
-    metric.SetMetricName("RequestCountPerTarget");
-    metric.AddDimensions(Aws::CloudWatch::Model::Dimension().WithName("TargetGroup").WithValue(_targetGroupArn));
- 
-    // Describe cómo quieres consultar/agrupar esa métrica.
-    Aws::CloudWatch::Model::MetricStat stat;
-    stat.SetMetric(metric);
-    stat.SetPeriod(QUERY_PERIOD_SECONDS);
-    stat.SetStat("Average");
-    
-    // Creamos query con id de query request poruqe es la unica query que habrá
-    Aws::CloudWatch::Model::MetricDataQuery query;
-    query.SetId("requests");
-    query.SetMetricStat(stat);
- 
-    // Creamos request con query, y con los tiempos start y end
-    Aws::CloudWatch::Model::GetMetricDataRequest request;
-
-    auto now = std::chrono::system_clock::now();
-    request.SetStartTime(Aws::Utils::DateTime(now - window));
-    request.SetEndTime(Aws::Utils::DateTime(now));
-    request.SetScanBy(Aws::CloudWatch::Model::ScanBy::TimestampAscending);
-    request.AddMetricDataQueries(query);
- 
-
-    MetricSeries series;
-    auto outcome = _cloudWatchClient.GetMetricData(request);
-    if (!outcome.IsSuccess()){
-        return {FetchStatus::ApiError, {}};
-    }
-    
-    if (outcome.GetResult().GetMetricDataResults().empty()) {
-        return {FetchStatus::Ok, {}};  // llamada exitosa, simplemente sin datos en la ventana
-    }
-
-    // metricResult contiene varios timestamp y values, pero solo un único "id", porque 
-    // RequestCountPerTarget da promedio -> acá hay n timestamps, y cada uno trae el value promedio de todas
-    // las instancias
-    const auto& metricResult = outcome.GetResult().GetMetricDataResults().front();
-    const auto& timestamps = metricResult.GetTimestamps();
-    const auto& values = metricResult.GetValues();
-
-    for (size_t j = 0; j < timestamps.size(); ++j) {
-        // timestamps son de tipo aws::utils::datetime -> obtenemos el timestamp interno que contienen
-        // para que coincida con tipos en metricsample, que es lo que pusheamos a series
-        series.push_back({timestamps[j].UnderlyingTimestamp(), values[j]});
-    }
-    
-    return {FetchStatus::Ok, series};
 }
  
 FetchResult<double> AWSMetricsSource::GetCurrentRequest() {

@@ -59,9 +59,9 @@ public:
         double cpuStepStdDev = 15.0, 
         double cpuTrendPercentPerMinute = 0.0,
         double baselineRequests = 100.0,
-        double requestStepStdDev = 40.0,
+        double requestStepStdDev = 80.0,
         std::chrono::seconds retentionWindow = std::chrono::minutes(30),
-        std::optional<std::filesystem::path> persistenceDirectory = std::filesystem::path("fake_metrics_archive"));
+        std::optional<std::filesystem::path> persistenceDirectory = std::filesystem::path("../fake_metrics_archive"));
 
     FetchResult<std::vector<std::string>> GetInstanceIds() override;
 

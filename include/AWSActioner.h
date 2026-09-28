@@ -1,9 +1,22 @@
 #pragma once
 
 #include <string>
+#include <ostream>
 #include <aws/autoscaling/AutoScalingClient.h>
 
 enum class ActionResult { Success, Failed };
+
+inline std::ostream& operator<<(std::ostream& os, ActionResult result) {
+    switch (result) {
+        case ActionResult::Success:
+            os << "Success";
+            break;
+        case ActionResult::Failed:
+            os << "Failed";
+            break;
+    }
+    return os;
+}
 
 // Implementacion real de IActioner contra la API de Auto Scaling.
 //

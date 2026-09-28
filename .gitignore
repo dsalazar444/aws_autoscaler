@@ -1,3 +1,5 @@
 /build
 explicaciones.txt
 /vcpkg_installed
+/logs/*
+/fake_metrics_archive/*
