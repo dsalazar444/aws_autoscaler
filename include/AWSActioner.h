@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <aws/autoscaling/AutoScalingClient.h>
 
 enum class ActionResult { Success, Failed };

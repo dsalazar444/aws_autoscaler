@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <string>
+#include <vector>
 #include <aws/autoscaling/AutoScalingClient.h>
 #include <aws/monitoring/CloudWatchClient.h>
 

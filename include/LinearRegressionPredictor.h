@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 #include "IValuePredictor.h"
 
 // Implementacion concreta de IValuePredictor via regresion lineal simple

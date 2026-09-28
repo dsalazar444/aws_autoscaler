@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <string>
+
 #include "IMetricsSource.h"
 
 // Que "opina" el modulo Reactivo sobre el estado ACTUAL (no predicho) de la
