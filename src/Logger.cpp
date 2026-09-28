@@ -1,10 +1,12 @@
 #include "Logger.h"
 
+#include <nlohmann/json.hpp> 
 #include <fstream>
 #include <sstream>
 #include <chrono>
 #include <iomanip>
 
+using json = nlohmann::json;
 using namespace std;
 
 // Conversion a texto de los enums de DecisionRecord -- compartida entre
@@ -87,7 +89,7 @@ namespace {
     // Metricas antes de poder calcularlo)
     // Util solo para tipos de datos comunes, para datos propios se debe usar método propio (por ejm: toString de Reactive y Proactive signals)
     template <typename T>
-    std::string optionalToString(const std::optional<T>& value) {
+    std::string optionalToJson(const std::optional<T>& value) {
         if (!value.has_value()) {
             return "null";
         }
@@ -103,12 +105,12 @@ namespace {
         return oss.str();
     }
 
-    std::string optionalWindowToString(const std::optional<std::chrono::seconds> window){
+    std::string optionalWindowToJson(const std::optional<std::chrono::seconds> window){
         if (!window.has_value()){
-            return "Indeterminado. Revise archivo config.json para ver ventanas definidas para este Analyzer";
+            return "null";
         }
 
-        std::to_string(window.value().count());
+        return std::to_string(window.value().count());
     }
 }
 
@@ -134,57 +136,81 @@ void Logger::LogTerminal(const DecisionRecord& record){
          << "decisionMade=" << ToString(record.decision) << endl;
     
     cout << "Actual metrics used to make decision: \n" 
-         << "globalCpu=" <<  optionalToString(record.currentGlobalCpu) << "%\n"
-         << "globalRequest= " << optionalToString(record.currentGlobalReq);
+         << "globalCpu=" <<  optionalToJson(record.currentGlobalCpu) << "%\n"
+         << "globalRequest= " << optionalToJson(record.currentGlobalReq);
 
     cout << "Modules signals: \n" 
          << "reactiveSignalCpu: " << ToString(record.reactiveSignalCpu) << ",\n"
          << "reactiveSignalReq: " << ToString(record.reactiveSignalReq) << ",\n"
          << "proactiveSignal:" << ToString(record.proactiveSignal) << ",\n"
-         << "proactiveEstimatedCpu:" << optionalToString(record.proactiveEstimatedCpu) << ",\n"
+         << "proactiveEstimatedCpu:" << optionalToJson(record.proactiveEstimatedCpu) << ",\n"
          << "targetCount:" << record.targetCount << ",\n"
-         << "instanceToDelete:" << optionalToString(record.idToDelete) << endl;
+         << "instanceToDelete:" << optionalToJson(record.idToDelete) << endl;
 
 
     cout << "decisionJustificaciton: " << record.justification << endl;
-    cout << "actionResult=" << optionalToString(record.actionResult);
+    cout << "actionResult=" << optionalToJson(record.actionResult);
 
     std::cout << " -- " << record.justification << "\n";
 }
 
-void Logger::LogJSON(const DecisionRecord& record){
-
+void Logger::LogJSON(const DecisionRecord& record)
+{
     std::ofstream file(_filePath, std::ios::app);
+
     if (!file) {
-        // best-effort: si no se puede escribir el log, preferimos que el
-        // ciclo de Controller siga corriendo antes que detener el sistema
-        // completo por un problema de disco -- pero este ciclo queda sin
-        // registro de auditoria, vale la pena monitorear esto aparte
+        std::cerr << "No se pudo abrir el archivo JSON\n";
         return;
     }
 
-    auto epochSeconds = std::chrono::duration_cast<std::chrono::seconds>(record.timestamp.time_since_epoch()).count();
+    const auto epochSeconds =std::chrono::duration_cast<std::chrono::seconds>(record.timestamp.time_since_epoch()).count();
 
-    file << "{"
-         << "\"timestamp\":" << FormatTimestamp(record.timestamp) << ","
-         << "\"epochSeconds\":" << epochSeconds << ","
+    json logEntry = {
+        {"timestamp", FormatTimestamp(record.timestamp)},
+        {"epochSeconds", epochSeconds},
 
-         << "\"metricsConsidered\":" << record.metricsConsidered << ","
-         << "\"analyzedWindowSeconds\":" << optionalWindowToString(record.analyzedWindow) << ","
+        {"metricsConsidered", record.metricsConsidered},
+        {"analyzedWindowSeconds",
+            record.analyzedWindow.has_value()
+                ? json(record.analyzedWindow->count())
+                : json(nullptr)},
 
-         << "\"instanceCountBefore\":" << record.instanceCountBefore << ","
-         << "\"currentGlobalCpu\":" << optionalToString(record.currentGlobalCpu) << ","
-         << "\"currentGlobalReq\":" << optionalToString(record.currentGlobalReq) << ","
+        {"instanceCountBefore", record.instanceCountBefore},
 
-         << "\"reactiveSignalCpu\":\"" << ToString(record.reactiveSignalCpu) << "\","
-         << "\"reactiveSignalReq\":\"" << ToString(record.reactiveSignalReq) << "\","
-         << "\"proactiveSignal\":\"" << ToString(record.proactiveSignal) << "\","
-         << "\"proactiveEstimatedCpu\":" << optionalToString(record.proactiveEstimatedCpu) << ","
-         << "\"targetCount\":" << record.targetCount << ","
-         << "\"instanceToDelete\":" << optionalToString(record.idToDelete) << ","
+        {"currentGlobalCpu",
+            record.currentGlobalCpu.has_value()
+                ? json(*record.currentGlobalCpu)
+                : json(nullptr)},
 
-         << "\"decision\":\"" << ToString(record.decision) << "\","
-         << "\"justification\":\"" << record.justification << "\","
-         << "\"actionResult\":" << optionalToString(record.actionResult) << "\","
-         << "}\n";
+        {"currentGlobalReq",
+            record.currentGlobalReq.has_value()
+                ? json(*record.currentGlobalReq)
+                : json(nullptr)},
+
+        {"reactiveSignalCpu", ToString(record.reactiveSignalCpu)},
+        {"reactiveSignalReq", ToString(record.reactiveSignalReq)},
+        {"proactiveSignal", ToString(record.proactiveSignal)},
+
+        {"proactiveEstimatedCpu",
+            record.proactiveEstimatedCpu.has_value()
+                ? json(*record.proactiveEstimatedCpu)
+                : json(nullptr)},
+
+        {"targetCount", record.targetCount},
+
+        {"instanceToDelete",
+            record.idToDelete.has_value()
+                ? json(*record.idToDelete)
+                : json(nullptr)},
+
+        {"decision", ToString(record.decision)},
+        {"justification", record.justification},
+
+        {"actionResult",
+            record.actionResult.has_value()
+                ? json(ToString(*record.actionResult))
+                : json(nullptr)}
+    };
+
+    file << logEntry.dump() << '\n';
 }
