@@ -1,5 +1,6 @@
 #pragma once
 // TODO: organizar los include de todos los .h
+
 #include <cstddef>
 #include <memory>
 //#include <unordered_map>
@@ -47,7 +48,6 @@ private:
     std::unique_ptr<IMetricsSource> _idsSource; // de donde se toman los ids, siempre es de awsmetrics
     FakeMetricsSource* _fakeMetricsSource; // Porque no deberia existir si metricsource no lo hace -> no es un shard_pointer, sino un pointer normal, que no es dueño
     
-    
     int _minInstances;
     int _maxInstances;
     
@@ -74,8 +74,6 @@ private:
     std::chrono::seconds _scaleInCooldown;
     std::chrono::system_clock::time_point _cooldownUntil; // Solo tiene sentido si _state =! Idle
 
-    
-    
     std::mt19937 _rng; // para cpuoverride, generar valores
     
     // Objetos externos necesarios
@@ -95,7 +93,7 @@ private:
     FetchResult<CurrentCpuSnapshot> GetCurrentCpus();
     FetchResult<double> GetCurrentRequest();
 
-    void BuildAndSendRecord(std::chrono::system_clock::time_point now, optional<std::chrono::seconds> window,
+    void BuildAndSendRecord(std::chrono::system_clock::time_point now, std::optional<std::chrono::seconds> window,
                 int instanceCount, std::optional<double> currentGlobalCpu,
                 std::optional<double> currentGlobalReq, const std::string& justification,
                 std::optional<ReactiveSignal> reactiveSignalCpu, std::optional<ReactiveSignal> reactiveSignalReq,
@@ -108,7 +106,7 @@ private:
                 ValidationResult<unordered_map<string, double>> validatedCurrentCpu,
                 const MetricSeries& historyRequest,
                 std::chrono::system_clock::time_point now,
-                optional<double> currentGlobalCpu,
+                std::optional<double> currentGlobalCpu,
                 FetchResult<double> currentRequest,
                 int totalActualInstances);
 
