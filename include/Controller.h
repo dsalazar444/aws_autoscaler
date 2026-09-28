@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "IMetricsSource.h"
+#include "FakeMetricsSource.h"
 #include "IValuePredictor.h"
 #include "Validator.h"
 #include "ProactiveAnalyzer.h"

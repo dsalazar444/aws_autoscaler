@@ -14,7 +14,18 @@ find_package(AWSSDK REQUIRED COMPONENTS
 find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(aws-autoscaler
+    src/Analytics.cpp
+    src/AWSActioner.cpp
+    src/AWSMetricsSource.cpp
+    src/Controller.cpp
+    src/FakeMetricsSource.cpp
+    src/LinearRegressionPredictor.cpp
+    src/Logger.cpp
+    src/LogGraph.cpp
     src/main.cpp
+    src/ProactiveAnalyzer.cpp
+    src/ReactiveAnalyzer.cpp
+    src/Validator.cpp
 )
 
 target_link_libraries(aws-autoscaler

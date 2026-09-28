@@ -56,7 +56,6 @@ public:
 
 private:
     std::filesystem::path _filePath; // /logs/log.json
-//TODO: Revisar los destructores en todos -> en Interfaces son ~I() = Default, no sé sin I como será
 
     void LogTerminal(const DecisionRecord& decisionRecord);
     void LogJSON(const DecisionRecord& decisionRecord);
